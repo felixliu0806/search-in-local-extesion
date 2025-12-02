@@ -1,10 +1,8 @@
 import { DEFAULT_LANGUAGE_PAIR, DEFAULT_MODEL } from '../shared/config';
-import { splitIntoSentences } from '../shared/sentence';
 import { AnalyzeRequest, LanguagePair, ModelId, RuntimeMessage } from '../shared/types';
 
 const BUTTON_ID = 'lla-caret-trigger';
-const DEBOUNCE_MS = 600;
-const BUTTON_OFFSET = 8;
+const DEBOUNCE_MS = 800;
 const BUTTON_EDGE_MARGIN = 8;
 const LOG_PREFIX = '[LLA]';
 
@@ -16,7 +14,6 @@ let debounceTimer: number | null = null;
 
 function log(message: string, data?: unknown): void {
   try {
-    // eslint-disable-next-line no-console
     console.log(LOG_PREFIX, message, data ?? '');
   } catch {
     // ignore
@@ -35,49 +32,21 @@ function isEditableElement(el: HTMLElement): boolean {
   return false;
 }
 
-function findEditable(target: EventTarget | null): HTMLElement | null {
-  let el = target as HTMLElement | null;
-  while (el) {
-    if (isEditableElement(el)) return el;
-    const parent = el.parentElement;
-    if (parent) {
-      el = parent;
-      continue;
-    }
-    const root = el.getRootNode();
-    if (root && (root as ShadowRoot).host instanceof HTMLElement) {
-      el = (root as ShadowRoot).host as HTMLElement;
-      continue;
-    }
-    break;
+function findEditableElement(): HTMLElement | null {
+  let el: Element | null = document.activeElement;
+  
+  // 处理shadow DOM
+  while (el && (el as HTMLElement).shadowRoot) {
+    const shadowActive = (el as HTMLElement).shadowRoot?.activeElement;
+    if (!shadowActive || shadowActive === el) break;
+    el = shadowActive;
   }
+  
+  if (el instanceof HTMLElement && isEditableElement(el)) {
+    return el;
+  }
+  
   return null;
-}
-
-function selectionInsideActive(editable: HTMLElement, selection: Selection | null): boolean {
-  if (!selection || selection.rangeCount === 0) return false;
-  const anchor = selection.anchorNode;
-  if (!anchor) return false;
-  if (editable.contains(anchor)) return true;
-  const root = anchor.getRootNode();
-  if (root && (root as ShadowRoot).host && editable.contains((root as ShadowRoot).host as Node)) return true;
-  return false;
-}
-
-function getTextFromElement(el: HTMLElement): string {
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    return el.value;
-  }
-  return el.textContent ?? '';
-}
-
-function setTextToElement(el: HTMLElement, text: string): void {
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    el.value = text;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    return;
-  }
-  el.textContent = text;
 }
 
 function createTriggerButton(): HTMLButtonElement {
@@ -97,248 +66,217 @@ function createTriggerButton(): HTMLButtonElement {
   btn.style.cursor = 'pointer';
   btn.style.userSelect = 'none';
   btn.style.display = 'none';
+  btn.style.width = '36px';
+  btn.style.height = '32px';
+  btn.style.textAlign = 'center';
+  btn.style.lineHeight = '32px';
   btn.title = '查看优化表达';
-
-  btn.addEventListener('mousedown', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
 
   btn.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    triggerAnalysis();
-    hideButton();
+    handleTriggerClick();
   });
 
-  const mount = () => {
-    if (!btn.isConnected && document.body) {
-      document.body.appendChild(btn);
-    }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mount);
-  } else {
-    mount();
+  if (document.body) {
+    document.body.appendChild(btn);
   }
+  
   return btn;
 }
 
 function getTriggerButton(): HTMLButtonElement {
-  if (triggerButton) return triggerButton;
-  triggerButton = createTriggerButton();
+  if (!triggerButton) {
+    triggerButton = createTriggerButton();
+  }
   return triggerButton;
 }
 
-function getCaretRect(target: HTMLElement): DOMRect | null {
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-    return getTextareaCaretRect(target);
-  }
-  const selection = document.getSelection();
-  if (!selection || selection.rangeCount === 0) return null;
-  const range = selection.getRangeAt(0).cloneRange();
-  range.collapse(true);
-  let rect = range.getBoundingClientRect();
-  if (rect && rect.width === 0 && rect.height === 0) {
-    const marker = document.createElement('span');
-    marker.textContent = '\u200b';
-    range.insertNode(marker);
-    rect = marker.getBoundingClientRect();
-    marker.parentNode?.removeChild(marker);
-    range.detach();
-  }
-  if (rect && rect.width === 0 && rect.height === 0) return null;
-  log('caret rect (contenteditable)', rect);
-  return rect;
-}
-
-function getTextareaCaretRect(el: HTMLInputElement | HTMLTextAreaElement): DOMRect | null {
-  const start = el.selectionStart;
-  if (start === null || start === undefined) return null;
-  const style = window.getComputedStyle(el);
-  const mirror = document.createElement('div');
-  const rect = el.getBoundingClientRect();
-  mirror.style.position = 'fixed';
-  mirror.style.left = `${rect.left}px`;
-  mirror.style.top = `${rect.top}px`;
-  mirror.style.width = `${el.clientWidth}px`;
-  mirror.style.whiteSpace = 'pre-wrap';
-  mirror.style.wordWrap = 'break-word';
-  mirror.style.visibility = 'hidden';
-  mirror.style.font = style.font;
-  mirror.style.padding = style.padding;
-  mirror.style.border = style.border;
-  mirror.style.boxSizing = style.boxSizing;
-  mirror.textContent = el.value.slice(0, start);
-  const marker = document.createElement('span');
-  marker.textContent = el.value.slice(start) || '\u200b';
-  mirror.appendChild(marker);
-  document.body.appendChild(mirror);
-  const markerRect = marker.getBoundingClientRect();
-  document.body.removeChild(mirror);
-  log('caret rect (input/textarea)', markerRect);
-  return markerRect;
-}
-
-function positionButton(rect: DOMRect): void {
+function positionButton(): void {
+  if (!activeElement) return;
+  
   const btn = getTriggerButton();
-  const btnWidth = btn.offsetWidth || 48;
-  const btnHeight = btn.offsetHeight || 24;
-  const top = rect.top + rect.height / 2 - btnHeight / 2;
-  let left = rect.right + BUTTON_OFFSET;
+  // 使用固定尺寸，避免每次重新计算导致的抖动
+  const btnWidth = 36;
+  const btnHeight = 32;
+  
+  // 获取元素相对于视口的位置
+  const rect = activeElement.getBoundingClientRect();
+  
+  // 计算按钮位置（相对于视口）
+  let top: number;
+  
+  // 根据元素类型调整按钮位置
+  if (activeElement.tagName.toLowerCase() === 'input') {
+    // 对于input，按钮垂直居中对齐，上下留同样空白
+    top = rect.top + (rect.height - btnHeight) / 2;
+  } else {
+    // 对于textarea和其他元素，按钮定位在右下角，离底部8px
+    top = rect.bottom - btnHeight - 8;
+  }
+  
+  let left = rect.right - btnWidth - 4;
+  
+  // 确保按钮在视窗内
   const maxLeft = window.innerWidth - btnWidth - BUTTON_EDGE_MARGIN;
   if (left > maxLeft) left = maxLeft;
   if (left < BUTTON_EDGE_MARGIN) left = BUTTON_EDGE_MARGIN;
-  const finalTop = Math.max(top, BUTTON_EDGE_MARGIN);
-  btn.style.top = `${finalTop}px`;
+  if (top < BUTTON_EDGE_MARGIN) top = BUTTON_EDGE_MARGIN;
+  
+  // 添加日志记录定位信息
+  log('Positioning button', {
+    elementRect: rect,
+    btnWidth,
+    btnHeight,
+    calculatedTop: top,
+    calculatedLeft: left,
+    finalTop: top,
+    finalLeft: left,
+    activeElement: activeElement.tagName || 'null'
+  });
+  
+  btn.style.top = `${top}px`;
   btn.style.left = `${left}px`;
-  log('positionButton', { top: btn.style.top, left: btn.style.left });
 }
 
-function showButtonNearCaret(): void {
-  if (!activeElement) return;
-  const text = getTextFromElement(activeElement);
-  if (!text || text.trim().length === 0) {
+
+
+function showButton(): void {
+  if (!activeElement) {
+    log('showButton: no active element');
+    return;
+  }
+  
+  const text = activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement 
+    ? activeElement.value 
+    : activeElement.textContent || '';
+  
+  log('showButton: checking text content', { textLength: text.length, hasText: !!text.trim(), element: activeElement.tagName });
+  
+  if (!text.trim()) {
+    log('showButton: empty text, hiding button');
     hideButton();
     return;
   }
-  let rect = getCaretRect(activeElement);
-  if (!rect) {
-    const fallback = activeElement.getBoundingClientRect();
-    rect = new DOMRect(fallback.right, fallback.bottom, 0, 0);
-    log('fallback rect used', rect);
-  }
+  
   const btn = getTriggerButton();
-  positionButton(rect);
+  log('showButton: showing button');
+  positionButton();
   btn.style.display = 'inline-flex';
-  log('showButtonNearCaret');
+  
+  // 开始观察元素大小变化
+  resizeObserver.observe(activeElement);
 }
 
 function hideButton(): void {
   const btn = getTriggerButton();
+  log('hideButton: hiding button');
   btn.style.display = 'none';
-  log('hideButton');
+  
+  // 停止观察元素大小变化
+  if (activeElement) {
+    resizeObserver.unobserve(activeElement);
+  }
 }
 
-function scheduleButton(target: HTMLElement): void {
-  activeElement = target;
-  if (debounceTimer) window.clearTimeout(debounceTimer);
-  log('scheduleButton', { tag: target.tagName, hasContent: !!getTextFromElement(target)?.trim() });
+function debounceShowButton(): void {
+  if (debounceTimer) {
+    window.clearTimeout(debounceTimer);
+  }
+  
   debounceTimer = window.setTimeout(() => {
-    if (!activeElement || !activeElement.isConnected) {
-      log('scheduleButton skipped (detached)');
-      return;
+    if (activeElement) {
+      showButton();
     }
-    showButtonNearCaret();
   }, DEBOUNCE_MS);
 }
 
-function handleInput(event: Event): void {
-  const editable = findEditable(event.target);
-  if (!editable) return;
-  const text = getTextFromElement(editable);
-  if (text && text.trim().length > 0) {
-    scheduleButton(editable);
-  } else {
-    hideButton();
-  }
-  log('handleInput', { tag: (editable as HTMLElement).tagName, length: text.length });
-}
-
-function handleFocusIn(event: FocusEvent): void {
-  const editable = findEditable(event.target);
-  if (!editable) return;
-  activeElement = editable;
-  const text = getTextFromElement(editable);
-  if (text && text.trim().length > 0) {
-    scheduleButton(editable);
-  } else {
-    hideButton();
-  }
-  log('handleFocusIn', { tag: editable.tagName, length: text?.length ?? 0 });
-}
-
-function handleKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    hideButton();
-    return;
-  }
-  if (debounceTimer) window.clearTimeout(debounceTimer);
-  hideButton();
-}
-
-function handleFocusOut(event: FocusEvent): void {
-  if (activeElement === event.target) {
-    hideButton();
-    activeElement = null;
-    if (debounceTimer) window.clearTimeout(debounceTimer);
-    log('handleFocusOut');
-  }
-}
-
-function handleClick(event: MouseEvent): void {
-  const target = event.target as HTMLElement | null;
-  const btn = triggerButton;
-  if (btn && target && (btn === target || btn.contains(target))) return;
-  const editable = findEditable(event.target);
-  if (editable) {
-    activeElement = editable;
-    const text = getTextFromElement(editable);
-    if (text && text.trim().length > 0) {
-      scheduleButton(editable);
-    }
-    log('handleClick editable', { tag: editable.tagName, length: text?.length ?? 0 });
-    return;
-  }
-  hideButton();
-  log('handleClick outside');
-}
-
-function handleSelectionChange(): void {
+async function handleTriggerClick(): Promise<void> {
   if (!activeElement) return;
-  const sel = document.getSelection();
-  if (!selectionInsideActive(activeElement, sel)) {
-    hideButton();
-    return;
-  }
-  const text = getTextFromElement(activeElement);
-  if (!text || text.trim().length === 0) {
-    hideButton();
-    return;
-  }
-  if (debounceTimer) window.clearTimeout(debounceTimer);
-  log('handleSelectionChange', { tag: activeElement.tagName });
-  debounceTimer = window.setTimeout(() => {
-    showButtonNearCaret();
-  }, DEBOUNCE_MS);
-}
-
-async function triggerAnalysis(): Promise<void> {
-  if (!activeElement) return;
-  const text = getTextFromElement(activeElement);
-  const sentences = splitIntoSentences(text);
-  if (!sentences.length) return;
+  
+  const text = activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement 
+    ? activeElement.value 
+    : activeElement.textContent || '';
+  
+  if (!text.trim()) return;
+  
   const request: AnalyzeRequest = {
     type: 'analyze-text',
     text,
     languagePair,
     model,
   };
+  
   try {
     const response = (await chrome.runtime.sendMessage(request)) as RuntimeMessage;
     if (response && response.type === 'analyze-result') {
       const combined = response.suggestions.map((s) => s.rewritten).join(' ');
-      setTextToElement(activeElement, combined);
-    }
-    if (response && response.type === 'error') {
-      console.warn('Analysis failed:', response.message);
+      const finalText = combined || text;
+      
+      if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+        activeElement.value = finalText;
+        activeElement.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (activeElement.isContentEditable) {
+        activeElement.textContent = finalText;
+      }
     }
   } catch (error) {
-    console.error('Message send failed', error);
+    console.error('Analysis failed:', error);
+  }
+  
+  hideButton();
+}
+
+function handleInput(): void {
+  const editable = findEditableElement();
+  if (editable) {
+    activeElement = editable;
+    debounceShowButton();
+  } else {
+    activeElement = null;
+    hideButton();
   }
 }
 
-async function hydrateSettings(): Promise<void> {
+function handleFocusIn(): void {
+  const editable = findEditableElement();
+  if (editable) {
+    activeElement = editable;
+    debounceShowButton();
+  }
+}
+
+function handleFocusOut(): void {
+  activeElement = null;
+  hideButton();
+}
+
+function handleKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    hideButton();
+  }
+}
+
+function handleClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement;
+  const btn = getTriggerButton();
+  
+  if (btn && !btn.contains(target)) {
+    const editable = findEditableElement();
+    if (editable) {
+      // 如果点击的是当前活动元素，不需要重新显示按钮
+      if (activeElement === editable) {
+        return;
+      }
+      activeElement = editable;
+      debounceShowButton();
+    } else {
+      hideButton();
+    }
+  }
+}
+
+async function loadSettings(): Promise<void> {
   try {
     const stored = await chrome.storage.local.get(['settings']);
     if (stored.settings) {
@@ -350,12 +288,43 @@ async function hydrateSettings(): Promise<void> {
   }
 }
 
+// 初始化事件监听
 document.addEventListener('input', handleInput, true);
 document.addEventListener('focusin', handleFocusIn, true);
-document.addEventListener('keydown', handleKeydown, true);
 document.addEventListener('focusout', handleFocusOut, true);
+document.addEventListener('keydown', handleKeydown, true);
 document.addEventListener('click', handleClick, true);
-document.addEventListener('selectionchange', handleSelectionChange);
 
-hydrateSettings();
-log('content script loaded');
+// 监听滚动事件，直接更新按钮位置
+window.addEventListener('scroll', () => {
+  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
+    log('scroll event: updating button position');
+    positionButton();
+  }
+}, true);
+
+// 监听窗口大小变化
+window.addEventListener('resize', () => {
+  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
+    log('resize event: updating button position');
+    positionButton();
+  }
+}, true);
+
+// 监听元素大小变化
+const resizeObserver = new ResizeObserver((entries) => {
+  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
+    for (const entry of entries) {
+      if (entry.target === activeElement) {
+        log('resize observer: updating button position');
+        positionButton();
+        break;
+      }
+    }
+  }
+});
+
+// 加载设置
+loadSettings();
+
+log('Language Learning Assistant content script loaded');
