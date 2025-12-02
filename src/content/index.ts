@@ -1,5 +1,10 @@
 import { DEFAULT_LANGUAGE_PAIR, DEFAULT_MODEL } from '../shared/config';
-import { AnalyzeRequest, LanguagePair, ModelId, RuntimeMessage } from '../shared/types';
+import {
+  AnalyzeRequest,
+  LanguagePair,
+  ModelId,
+  SentenceSuggestion,
+} from '../shared/types';
 
 const BUTTON_ID = 'lla-caret-trigger';
 const DEBOUNCE_MS = 800;
@@ -26,7 +31,15 @@ function isEditableElement(el: HTMLElement): boolean {
   if (tag === 'textarea') return true;
   if (tag === 'input') {
     const type = (el as HTMLInputElement).type;
-    const unsupported = ['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'hidden'];
+    const unsupported = [
+      'button',
+      'submit',
+      'reset',
+      'checkbox',
+      'radio',
+      'file',
+      'hidden',
+    ];
     return !unsupported.includes(type);
   }
   return false;
@@ -34,18 +47,18 @@ function isEditableElement(el: HTMLElement): boolean {
 
 function findEditableElement(): HTMLElement | null {
   let el: Element | null = document.activeElement;
-  
+
   // 处理shadow DOM
   while (el && (el as HTMLElement).shadowRoot) {
     const shadowActive = (el as HTMLElement).shadowRoot?.activeElement;
     if (!shadowActive || shadowActive === el) break;
     el = shadowActive;
   }
-  
+
   if (el instanceof HTMLElement && isEditableElement(el)) {
     return el;
   }
-  
+
   return null;
 }
 
@@ -139,8 +152,6 @@ function positionButton(): void {
   btn.style.left = `${left}px`;
 }
 
-
-
 function showButton(): void {
   if (!activeElement) {
     log('showButton: no active element');
@@ -172,7 +183,7 @@ function hideButton(): void {
   const btn = getTriggerButton();
   log('hideButton: hiding button');
   btn.style.display = 'none';
-  
+
   // 停止观察元素大小变化
   if (activeElement) {
     resizeObserver.unobserve(activeElement);
@@ -183,7 +194,7 @@ function debounceShowButton(): void {
   if (debounceTimer) {
     window.clearTimeout(debounceTimer);
   }
-  
+
   debounceTimer = window.setTimeout(() => {
     if (activeElement) {
       showButton();
@@ -192,39 +203,114 @@ function debounceShowButton(): void {
 }
 
 async function handleTriggerClick(): Promise<void> {
-  if (!activeElement) return;
-  
-  const text = activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement 
-    ? activeElement.value 
-    : activeElement.textContent || '';
-  
-  if (!text.trim()) return;
-  
+  if (!activeElement) {
+    log('handleTriggerClick: no active element');
+    return;
+  }
+
+  let text: string;
+  let selectedText: string = '';
+
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement
+  ) {
+    // 对于input和textarea元素，使用selectionStart和selectionEnd获取选中的文本
+    const start = activeElement.selectionStart || 0;
+    const end = activeElement.selectionEnd || 0;
+    selectedText = activeElement.value.substring(start, end);
+    text = selectedText || activeElement.value;
+    log('handleTriggerClick: input/textarea element', {
+      start,
+      end,
+      selectedText,
+      textLength: text.length,
+    });
+  } else if (activeElement.isContentEditable) {
+    // 对于contenteditable元素，使用window.getSelection()获取选中的文本
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      selectedText = selection.toString();
+    }
+    text = selectedText || activeElement.textContent || '';
+    log('handleTriggerClick: contenteditable element', {
+      selectedText,
+      textLength: text.length,
+    });
+  } else {
+    // 对于其他元素，使用文本内容
+    text = activeElement.textContent || '';
+    log('handleTriggerClick: other element', { textLength: text.length });
+  }
+
+  if (!text.trim()) {
+    log('handleTriggerClick: empty text, returning');
+    return;
+  }
+
+  log('handleTriggerClick: sending text for analysis', {
+    selectedText: !!selectedText,
+    textLength: text.length,
+    fullText: text,
+  });
+
   const request: AnalyzeRequest = {
     type: 'analyze-text',
     text,
     languagePair,
     model,
   };
-  
+
+  log('handleTriggerClick: created request object', { request });
+
   try {
-    const response = (await chrome.runtime.sendMessage(request)) as RuntimeMessage;
+    log('handleTriggerClick: sending message to background', {
+      requestType: request.type,
+      text: request.text,
+    });
+    // 使用setTimeout避免同步隐藏按钮导致消息通道关闭
+    const response = await chrome.runtime.sendMessage(request);
+    log('handleTriggerClick: received response from background', {
+      type: response?.type,
+    });
+
     if (response && response.type === 'analyze-result') {
-      const combined = response.suggestions.map((s) => s.rewritten).join(' ');
+      log('handleTriggerClick: received analyze-result response', {
+        suggestionCount: response.suggestions.length,
+      });
+      const combined = response.suggestions
+        .map((s: SentenceSuggestion) => s.rewritten)
+        .join(' ');
       const finalText = combined || text;
-      
-      if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+
+      if (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement
+      ) {
+        log('handleTriggerClick: updating input/textarea value');
         activeElement.value = finalText;
         activeElement.dispatchEvent(new Event('input', { bubbles: true }));
       } else if (activeElement.isContentEditable) {
+        log('handleTriggerClick: updating contenteditable text');
         activeElement.textContent = finalText;
       }
+    } else if (response && response.type === 'error') {
+      log('handleTriggerClick: received error response', {
+        message: response.message,
+      });
     }
   } catch (error) {
+    log('handleTriggerClick: error sending message to background', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     console.error('Analysis failed:', error);
+  } finally {
+    // 在finally块中隐藏按钮，确保无论是否成功都会执行
+    setTimeout(() => {
+      log('handleTriggerClick: hiding button after delay');
+      hideButton();
+    }, 100);
   }
-  
-  hideButton();
 }
 
 function handleInput(): void {
@@ -246,7 +332,12 @@ function handleFocusIn(): void {
   }
 }
 
-function handleFocusOut(): void {
+function handleFocusOut(event: FocusEvent): void {
+  const nextTarget = event.relatedTarget as HTMLElement | null;
+  // If focus moves to the trigger button, keep the active element so clicks still work
+  if (nextTarget && nextTarget.id === BUTTON_ID) {
+    return;
+  }
   activeElement = null;
   hideButton();
 }
@@ -260,19 +351,33 @@ function handleKeydown(event: KeyboardEvent): void {
 function handleClick(event: MouseEvent): void {
   const target = event.target as HTMLElement;
   const btn = getTriggerButton();
-  
+
+  log('handleClick: event triggered', {
+    target: target.tagName,
+    targetId: target.id,
+    btnContainsTarget: btn?.contains(target),
+    eventPhase: event.eventPhase,
+  });
+
   if (btn && !btn.contains(target)) {
     const editable = findEditableElement();
     if (editable) {
       // 如果点击的是当前活动元素，不需要重新显示按钮
       if (activeElement === editable) {
+        log('handleClick: clicked on active editable element, returning');
         return;
       }
+      log(
+        'handleClick: clicked on new editable element, updating activeElement and showing button'
+      );
       activeElement = editable;
       debounceShowButton();
     } else {
+      log('handleClick: clicked on non-editable element, hiding button');
       hideButton();
     }
+  } else {
+    log('handleClick: clicked on trigger button, not hiding');
   }
 }
 
@@ -296,24 +401,44 @@ document.addEventListener('keydown', handleKeydown, true);
 document.addEventListener('click', handleClick, true);
 
 // 监听滚动事件，直接更新按钮位置
-window.addEventListener('scroll', () => {
-  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
-    log('scroll event: updating button position');
-    positionButton();
-  }
-}, true);
+window.addEventListener(
+  'scroll',
+  () => {
+    if (
+      activeElement &&
+      triggerButton &&
+      triggerButton.style.display !== 'none'
+    ) {
+      log('scroll event: updating button position');
+      positionButton();
+    }
+  },
+  true
+);
 
 // 监听窗口大小变化
-window.addEventListener('resize', () => {
-  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
-    log('resize event: updating button position');
-    positionButton();
-  }
-}, true);
+window.addEventListener(
+  'resize',
+  () => {
+    if (
+      activeElement &&
+      triggerButton &&
+      triggerButton.style.display !== 'none'
+    ) {
+      log('resize event: updating button position');
+      positionButton();
+    }
+  },
+  true
+);
 
 // 监听元素大小变化
 const resizeObserver = new ResizeObserver((entries) => {
-  if (activeElement && triggerButton && triggerButton.style.display !== 'none') {
+  if (
+    activeElement &&
+    triggerButton &&
+    triggerButton.style.display !== 'none'
+  ) {
     for (const entry of entries) {
       if (entry.target === activeElement) {
         log('resize observer: updating button position');

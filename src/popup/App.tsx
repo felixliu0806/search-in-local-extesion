@@ -9,7 +9,7 @@ import { LanguagePair, ModelId, PhrasebookRecord, QuotaState } from '../shared/t
 import { getSettings, saveSettings, getQuotaState, getPhrasebook } from '../storage';
 
 function formatPair(pair: LanguagePair): string {
-  return `${pair.from} ¡ú ${pair.to}`;
+  return `${pair.from} ï¿½ï¿½ ${pair.to}`;
 }
 
 export function App() {
@@ -18,14 +18,30 @@ export function App() {
   const [quota, setQuota] = useState<QuotaState | null>(null);
   const [phrasebook, setPhrasebook] = useState<PhrasebookRecord[]>([]);
 
+  const loadData = async () => {
+    const settings = await getSettings();
+    setLanguagePair(settings.languagePair);
+    setModel(settings.model);
+    setQuota(await getQuotaState());
+    setPhrasebook(await getPhrasebook());
+  };
+
   useEffect(() => {
-    (async () => {
-      const settings = await getSettings();
-      setLanguagePair(settings.languagePair);
-      setModel(settings.model);
-      setQuota(await getQuotaState());
-      setPhrasebook(await getPhrasebook());
-    })();
+    loadData();
+
+    // æ·»åŠ å­˜å‚¨å˜åŒ–ç›‘å¬å™¨ï¼Œå½“çŸ­è¯­ç°¿æ›´æ–°æ—¶è‡ªåŠ¨é‡æ–°åŠ è½½æ•°æ®
+    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName === 'local' && (changes['phrasebook'] || changes['quota'])) {
+        loadData();
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    // æ¸…ç†ç›‘å¬å™¨
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
   }, []);
 
   const handleLanguageChange = async (pair: LanguagePair) => {
@@ -44,7 +60,7 @@ export function App() {
     <div className="w-96 max-h-[480px] overflow-y-auto p-4 space-y-4 bg-white text-gray-900">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">Language Assistant</h1>
-        <p className="text-sm text-gray-600">ÈýÁ¬¿Õ¸ñ´¥·¢£¬Öð¾ä½¨ÒéÓëÌæ»»¡£</p>
+        <p className="text-sm text-gray-600">ï¿½ï¿½ï¿½ï¿½ï¿½Õ¸ñ´¥·ï¿½ï¿½ï¿½ï¿½ï¿½ä½¨ï¿½ï¿½ï¿½ï¿½ï¿½æ»»ï¿½ï¿½</p>
       </header>
 
       <section className="space-y-2">
@@ -92,10 +108,10 @@ export function App() {
             <span>
               {quota.used}/{quota.limit} per day (UTC reset {new Date(quota.resetAt).toLocaleTimeString()} )
             </span>
-            {quota.exceeded && <span className="text-red-600">³¬ÏÞ</span>}
+            {quota.exceeded && <span className="text-red-600">ï¿½ï¿½ï¿½ï¿½</span>}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">Loading quota¡­</p>
+          <p className="text-sm text-gray-500">Loading quotaï¿½ï¿½</p>
         )}
       </section>
 
@@ -106,7 +122,7 @@ export function App() {
         </div>
         <div className="space-y-2 max-h-48 overflow-y-auto border rounded border-gray-200 p-2 bg-gray-50">
           {phrasebook.length === 0 && (
-            <p className="text-sm text-gray-500">ÔÝÎÞ¼ÇÂ¼£¬´¥·¢Éú³Éºó»á³öÏÖÔÚÕâÀï¡£</p>
+            <p className="text-sm text-gray-500">ï¿½ï¿½ï¿½Þ¼ï¿½Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Éºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¡£</p>
           )}
           {phrasebook.map((item) => (
             <div key={item.id} className="rounded bg-white border border-gray-200 p-2 shadow-sm">
@@ -114,7 +130,7 @@ export function App() {
               <p className="text-xs text-gray-500 truncate">{item.userInput}</p>
               <div className="text-[11px] text-gray-500 flex gap-2 pt-1">
                 <span>{new Date(item.timestamp).toLocaleString()}</span>
-                {item.favorited && <span>¡ï</span>}
+                {item.favorited && <span>ï¿½ï¿½</span>}
               </div>
             </div>
           ))}

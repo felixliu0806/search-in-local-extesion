@@ -29,9 +29,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
 });
 
 async function handleAnalyze(request: AnalyzeRequest): Promise<AnalyzeResponse | ErrorResponse> {
-  const sentences = splitIntoSentences(request.text);
+  console.log('[BACKGROUND] handleAnalyze called with text:', request.text);
+  
+  // 不再按照句号拆分文本，直接使用整个文本
+  const sentences = [request.text];
+  console.log('[BACKGROUND] Using entire text as single sentence:', sentences);
+  
   const currentQuota = await getQuotaState();
+  console.log('[BACKGROUND] Current quota:', currentQuota);
+  
   if (currentQuota.exceeded) {
+    console.log('[BACKGROUND] Quota exceeded');
     return {
       type: 'error',
       message: 'Daily limit reached. Upgrade to continue.',
@@ -39,14 +47,21 @@ async function handleAnalyze(request: AnalyzeRequest): Promise<AnalyzeResponse |
   }
 
   const suggestions = await generateMockSuggestions(sentences);
+  console.log('[BACKGROUND] Generated suggestions:', suggestions);
+  
   const updatedQuota = await incrementQuota(sentences.length);
-  await addPhrasebookEntries(suggestions);
+  console.log('[BACKGROUND] Updated quota:', updatedQuota);
+  
+  const phrasebook = await addPhrasebookEntries(suggestions);
+  console.log('[BACKGROUND] Added to phrasebook, new phrasebook:', phrasebook);
 
   const response: AnalyzeResponse = {
     type: 'analyze-result',
     suggestions,
     quota: updatedQuota,
   };
+  
+  console.log('[BACKGROUND] Sending response:', response);
   return response;
 }
 
