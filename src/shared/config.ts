@@ -15,4 +15,4 @@ export const SUPPORTED_MODELS: ModelId[] = ['gpt', 'deepseek'];
 export const DEFAULT_MODEL: ModelId = 'gpt';
 
 export const PHRASEBOOK_MAX_ITEMS = 50;
-export const DAILY_QUOTA = 20;
+export const DAILY_QUOTA = 1000;

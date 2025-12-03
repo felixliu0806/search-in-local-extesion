@@ -181,7 +181,14 @@ function showButton(): void {
 
 function hideButton(): void {
   const btn = getTriggerButton();
-  log('hideButton: hiding button');
+  // 检查按钮是否已经隐藏，避免重复调用
+  if (btn.style.display === 'none') {
+    return;
+  }
+  
+  // 添加调用栈日志，以便追踪hideButton被调用的原因
+  const stackTrace = new Error().stack;
+  log('hideButton: hiding button', { stackTrace: stackTrace?.split('\n') });
   btn.style.display = 'none';
 
   // 停止观察元素大小变化
@@ -300,10 +307,19 @@ async function handleTriggerClick(): Promise<void> {
       });
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log('handleTriggerClick: error sending message to background', {
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
     });
-    console.error('Analysis failed:', error);
+    
+    // 处理Extension context invalidated错误
+    if (errorMessage.includes('Extension context invalidated')) {
+      log('handleTriggerClick: Extension context invalidated, reloading content script');
+      // 可以选择刷新页面或重新加载内容脚本
+      // window.location.reload();
+    } else {
+      console.error('Analysis failed:', error);
+    }
   } finally {
     // 在finally块中隐藏按钮，确保无论是否成功都会执行
     setTimeout(() => {
