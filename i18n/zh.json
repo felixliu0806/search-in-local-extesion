@@ -1,0 +1,12 @@
+{
+  "panelTitle": "表达优化建议",
+  "original": "原始输入",
+  "suggestion": "推荐表达",
+  "focus": "重点短语",
+  "explanation": "推荐理由",
+  "alternatives": "其他表达变体",
+  "replace": "替换原文",
+  "save": "收藏到短语本",
+  "close": "关闭",
+  "loading": "正在分析你的文本..."
+}
