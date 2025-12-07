@@ -1,0 +1,12 @@
+{
+  "panelTitle": "Language Feedback",
+  "original": "Original Input",
+  "suggestion": "Suggested Expression",
+  "focus": "Focus Point",
+  "explanation": "Why This Works",
+  "alternatives": "Other Options",
+  "replace": "Replace",
+  "save": "Save to Phrasebook",
+  "close": "Close",
+  "loading": "Analyzing your text..."
+}

@@ -84,13 +84,23 @@ Language Learning Chrome Plugin  Detailed Product Requirements Document PRD
   UI & 交互设计
 
  输入侧 UI（浮窗卡片）
- 逐句卡片式展示优化建议：
-   原句  推荐表达  中文讲解
-   每卡片配操作：替换 / 收藏 / 标星
- 底部提供：“替换全部”、“复制全部”按钮
- 视觉风格：
-   极简、柔和配色（米白、浅蓝、灰）
-   字体建议：中文 HarmonyOS Sans，英文 Inter
+逐句卡片式展示优化建议：
+  原句  推荐表达  中文讲解
+  每卡片配操作：替换 / 收藏 / 标星
+底部提供：“替换全部”、“复制全部”按钮
+ 点击翻译按钮时，在页面右侧弹出固定宽度约 360px 的 Side Panel：
+   展示原始输入（灰色小号字体）、推荐表达（加粗主句）
+   Focus Point 卡片（source → target + reason），解释内容使用 bullet 列表
+   其他表达变体 1-2 条，提供 Replace / Save to Phrasebook / Close 操作按钮
+   支持滚动且与主输入脚本解耦，便于扩展最小化或关闭行为
+  Side Panel 前端以 React + TSX 组件渲染，样式通过注入式样式表集中管理，保持与内容脚本逻辑解耦
+  统一语言偏好获取与透传：
+   通用函数 getUserLanguagePreference() 返回 { nativeLanguage, targetLanguage }
+   优先读取 chrome.storage.sync 或 popup/options 配置，默认回退到预设语言对
+   所有 AI/Mock 请求统一携带 { input, nativeLanguage, targetLanguage } 结构
+视觉风格：
+  极简、柔和配色（米白、浅蓝、灰）
+  字体建议：中文 HarmonyOS Sans，英文 Inter
    轻微动效反馈（卡片 hover、输入框替换动画）
 
  Phrasebook UI

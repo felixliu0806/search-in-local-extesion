@@ -1,10 +1,7 @@
-import { DEFAULT_LANGUAGE_PAIR, DEFAULT_MODEL } from '../shared/config';
-import {
-  AnalyzeRequest,
-  LanguagePair,
-  ModelId,
-  SentenceSuggestion,
-} from '../shared/types';
+import { getUserLanguagePreference } from '../shared/languagePreference';
+import { LanguageFeedback } from '../shared/types';
+import { getTranslations } from './i18n';
+import { SidePanelController } from './sidePanel';
 
 const BUTTON_ID = 'lla-caret-trigger';
 const DEBOUNCE_MS = 800;
@@ -12,10 +9,11 @@ const BUTTON_EDGE_MARGIN = 8;
 const LOG_PREFIX = '[LLA]';
 
 let activeElement: HTMLElement | null = null;
-let languagePair: LanguagePair = DEFAULT_LANGUAGE_PAIR;
-let model: ModelId = DEFAULT_MODEL;
 let triggerButton: HTMLButtonElement | null = null;
 let debounceTimer: number | null = null;
+const sidePanel = new SidePanelController({
+  onReplace: (suggestion: string) => replaceActiveElementText(suggestion),
+});
 
 function log(message: string, data?: unknown): void {
   try {
@@ -261,67 +259,23 @@ async function handleTriggerClick(): Promise<void> {
     fullText: text,
   });
 
-  const request: AnalyzeRequest = {
-    type: 'analyze-text',
-    text,
-    languagePair,
-    model,
+  const languagePreference = await getUserLanguagePreference();
+  const translations = getTranslations(languagePreference.nativeLanguage);
+  sidePanel.showLoading(translations);
+
+  const requestPayload = {
+    input: text,
+    nativeLanguage: languagePreference.nativeLanguage,
+    targetLanguage: languagePreference.targetLanguage,
   };
 
-  log('handleTriggerClick: created request object', { request });
-
   try {
-    log('handleTriggerClick: sending message to background', {
-      requestType: request.type,
-      text: request.text,
-    });
-    // 使用setTimeout避免同步隐藏按钮导致消息通道关闭
-    const response = await chrome.runtime.sendMessage(request);
-    log('handleTriggerClick: received response from background', {
-      type: response?.type,
-    });
-
-    if (response && response.type === 'analyze-result') {
-      log('handleTriggerClick: received analyze-result response', {
-        suggestionCount: response.suggestions.length,
-      });
-      const combined = response.suggestions
-        .map((s: SentenceSuggestion) => s.rewritten)
-        .join(' ');
-      const finalText = combined || text;
-
-      if (
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement
-      ) {
-        log('handleTriggerClick: updating input/textarea value');
-        activeElement.value = finalText;
-        activeElement.dispatchEvent(new Event('input', { bubbles: true }));
-      } else if (activeElement.isContentEditable) {
-        log('handleTriggerClick: updating contenteditable text');
-        activeElement.textContent = finalText;
-      }
-    } else if (response && response.type === 'error') {
-      log('handleTriggerClick: received error response', {
-        message: response.message,
-      });
-    }
+    const feedback = await requestLanguageFeedback(requestPayload);
+    sidePanel.renderFeedback(feedback, translations);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log('handleTriggerClick: error sending message to background', {
-      error: errorMessage,
-    });
-    
-    // 处理Extension context invalidated错误
-    if (errorMessage.includes('Extension context invalidated')) {
-      log('handleTriggerClick: Extension context invalidated, reloading content script');
-      // 可以选择刷新页面或重新加载内容脚本
-      // window.location.reload();
-    } else {
-      console.error('Analysis failed:', error);
-    }
+    log('handleTriggerClick: failed to get feedback', { error: errorMessage });
   } finally {
-    // 在finally块中隐藏按钮，确保无论是否成功都会执行
     setTimeout(() => {
       log('handleTriggerClick: hiding button after delay');
       hideButton();
@@ -397,16 +351,68 @@ function handleClick(event: MouseEvent): void {
   }
 }
 
-async function loadSettings(): Promise<void> {
-  try {
-    const stored = await chrome.storage.local.get(['settings']);
-    if (stored.settings) {
-      languagePair = stored.settings.languagePair || DEFAULT_LANGUAGE_PAIR;
-      model = stored.settings.model || DEFAULT_MODEL;
-    }
-  } catch (error) {
-    console.warn('Failed to load settings, using defaults', error);
+type LanguageRequestPayload = {
+  input: string;
+  nativeLanguage: string;
+  targetLanguage: string;
+};
+
+function requestLanguageFeedback(payload: LanguageRequestPayload): Promise<LanguageFeedback> {
+  log('requestLanguageFeedback: sending mock payload', payload);
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const suggestion = payload.targetLanguage === 'en'
+        ? 'I really love this product.'
+        : '我很喜欢这个产品。';
+
+      const feedback: LanguageFeedback = {
+        input: payload.input,
+        suggestion,
+        focus_points: [
+          {
+            source: '很喜欢',
+            target: 'really love',
+            reason: "比 'like very much' 更自然",
+          },
+        ],
+        explanation: [
+          '“really love” 比 “like very much” 更口语化。',
+          '表达感情色彩更强，适合社交场景。',
+        ],
+        alternatives: [
+          "I'm a huge fan of this product.",
+          'I absolutely adore this product.',
+        ],
+      };
+
+      log('requestLanguageFeedback: resolved mock feedback');
+      resolve(feedback);
+    }, 500);
+  });
+}
+
+function replaceActiveElementText(suggestion: string): void {
+  if (!activeElement) {
+    log('replaceActiveElementText: no active element');
+    return;
   }
+
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement
+  ) {
+    activeElement.value = suggestion;
+    activeElement.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+
+  if (activeElement.isContentEditable) {
+    activeElement.textContent = suggestion;
+    return;
+  }
+
+  log('replaceActiveElementText: unsupported element type', activeElement.tagName);
 }
 
 // 初始化事件监听
@@ -464,8 +470,5 @@ const resizeObserver = new ResizeObserver((entries) => {
     }
   }
 });
-
-// 加载设置
-loadSettings();
 
 log('Language Learning Assistant content script loaded');
