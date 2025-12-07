@@ -10,7 +10,7 @@
   "side_panel": {
     "default_path": "src/sidepanel/index.html"
   },
-  "permissions": ["storage", "scripting", "sidePanel"],
+  "permissions": ["storage", "scripting", "sidePanel", "tabs"],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {

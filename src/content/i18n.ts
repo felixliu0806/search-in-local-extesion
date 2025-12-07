@@ -13,6 +13,17 @@ export type UiTranslations = {
   close: string;
   loading: string;
   noContent: string;
+  popupTitle: string;
+  popupDescription: string;
+  languagePair: string;
+  model: string;
+  quota: string;
+  quotaExceeded: string;
+  loadingQuota: string;
+  phrasebook: string;
+  noPhrasebookEntries: string;
+  today: string;
+  limit: string;
 };
 
 type TranslationMap = Record<string, UiTranslations>;

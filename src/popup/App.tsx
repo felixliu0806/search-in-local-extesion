@@ -5,33 +5,38 @@ import {
   SUPPORTED_LANGUAGE_PAIRS,
   SUPPORTED_MODELS,
 } from '../shared/config';
-import { LanguagePair, ModelId, PhrasebookRecord, QuotaState } from '../shared/types';
-import { getSettings, saveSettings, getQuotaState, getPhrasebook } from '../storage';
+import { LanguagePair, ModelId, QuotaState } from '../shared/types';
+import { getSettings, saveSettings, getQuotaState } from '../storage';
+import { getUserLanguagePreference } from '../shared/languagePreference';
+import { getTranslations, UiTranslations } from '../content/i18n';
 
 function formatPair(pair: LanguagePair): string {
-  return `${pair.from} �� ${pair.to}`;
+  return `${pair.from} → ${pair.to}`;
 }
 
 export function App() {
   const [languagePair, setLanguagePair] = useState<LanguagePair>(DEFAULT_LANGUAGE_PAIR);
   const [model, setModel] = useState<ModelId>(DEFAULT_MODEL);
   const [quota, setQuota] = useState<QuotaState | null>(null);
-  const [phrasebook, setPhrasebook] = useState<PhrasebookRecord[]>([]);
+  const [translations, setTranslations] = useState<UiTranslations>(getTranslations('en'));
 
   const loadData = async () => {
     const settings = await getSettings();
     setLanguagePair(settings.languagePair);
     setModel(settings.model);
     setQuota(await getQuotaState());
-    setPhrasebook(await getPhrasebook());
+    
+    // 获取用户语言偏好并设置翻译
+    const languagePreference = await getUserLanguagePreference();
+    setTranslations(getTranslations(languagePreference.nativeLanguage));
   };
 
   useEffect(() => {
     loadData();
 
-    // 添加存储变化监听器，当短语簿更新时自动重新加载数据
+    // 添加存储变化监听器，当配额更新时自动重新加载数据
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
-      if (areaName === 'local' && (changes['phrasebook'] || changes['quota'])) {
+      if (areaName === 'local' && changes['quota']) {
         loadData();
       }
     };
@@ -57,85 +62,97 @@ export function App() {
   };
 
   return (
-    <div className="w-96 max-h-[480px] overflow-y-auto p-4 space-y-4 bg-white text-gray-900">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Language Assistant</h1>
-        <p className="text-sm text-gray-600">�����ո񴥷�����佨�����滻��</p>
+    <div className="w-96 bg-white text-gray-900 shadow-lg rounded-lg overflow-hidden">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-4">
+        <h1 className="text-xl font-bold">{translations.popupTitle}</h1>
+        <p className="text-sm text-blue-100 mt-1">{translations.popupDescription}</p>
       </header>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-700">Language pair</h2>
-        <div className="flex flex-wrap gap-2">
-          {SUPPORTED_LANGUAGE_PAIRS.map((pair) => (
-            <button
-              key={formatPair(pair)}
-              onClick={() => handleLanguageChange(pair)}
-              className={`px-3 py-1 rounded border text-sm ${
-                languagePair.from === pair.from && languagePair.to === pair.to
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-800 border-gray-300 hover:border-blue-400'
-              }`}
-            >
-              {formatPair(pair)}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-gray-700">Model</h2>
-        <div className="flex gap-2">
-          {SUPPORTED_MODELS.map((item) => (
-            <button
-              key={item}
-              onClick={() => handleModelChange(item)}
-              className={`px-3 py-1 rounded border text-sm ${
-                model === item
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-800 border-gray-300 hover:border-blue-400'
-              }`}
-            >
-              {item.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-1">
-        <h2 className="text-sm font-medium text-gray-700">Quota</h2>
-        {quota ? (
-          <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
-            <span>
-              {quota.used}/{quota.limit} per day (UTC reset {new Date(quota.resetAt).toLocaleTimeString()} )
-            </span>
-            {quota.exceeded && <span className="text-red-600">����</span>}
+      {/* Main Content */}
+      <div className="p-4 space-y-6">
+        {/* Language Pair Section */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{translations.languagePair}</h2>
+          <div className="flex flex-wrap gap-2">
+            {SUPPORTED_LANGUAGE_PAIRS.map((pair) => (
+              <button
+                key={formatPair(pair)}
+                onClick={() => handleLanguageChange(pair)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                  languagePair.from === pair.from && languagePair.to === pair.to
+                    ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                    : 'bg-gray-100 text-gray-800 hover:bg-blue-50 hover:border-blue-300 hover:shadow-sm border border-gray-200'
+                }`}
+              >
+                {formatPair(pair)}
+              </button>
+            ))}
           </div>
-        ) : (
-          <p className="text-sm text-gray-500">Loading quota��</p>
-        )}
-      </section>
+        </section>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-700">Phrasebook (latest)</h2>
-          <span className="text-xs text-gray-500">{phrasebook.length} / 50</span>
-        </div>
-        <div className="space-y-2 max-h-48 overflow-y-auto border rounded border-gray-200 p-2 bg-gray-50">
-          {phrasebook.length === 0 && (
-            <p className="text-sm text-gray-500">���޼�¼���������ɺ����������</p>
-          )}
-          {phrasebook.map((item) => (
-            <div key={item.id} className="rounded bg-white border border-gray-200 p-2 shadow-sm">
-              <p className="text-sm text-gray-800">{item.rewritten}</p>
-              <p className="text-xs text-gray-500 truncate">{item.userInput}</p>
-              <div className="text-[11px] text-gray-500 flex gap-2 pt-1">
-                <span>{new Date(item.timestamp).toLocaleString()}</span>
-                {item.favorited && <span>��</span>}
+        {/* Model Section */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{translations.model}</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {SUPPORTED_MODELS.map((item) => (
+              <button
+                key={item}
+                onClick={() => handleModelChange(item)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  model === item
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-800 hover:bg-blue-50 hover:border-blue-300 hover:shadow-sm border border-gray-200'
+                }`}
+              >
+                {item.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Quota Section */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{translations.quota}</h2>
+          {quota ? (
+            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm text-gray-600">{translations.today}</span>
+                <span className="text-sm font-medium ${
+                  quota.exceeded
+                    ? 'text-red-600'
+                    : 'text-gray-800'
+                }">
+                  {quota.used}/{quota.limit} {translations.limit}
+                </span>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div 
+                  className={`h-2.5 rounded-full transition-all duration-500 ${
+                    quota.exceeded
+                      ? 'bg-red-500'
+                      : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${Math.min((quota.used / quota.limit) * 100, 100)}%` }}
+                ></div>
+              </div>
+              
+              <div className="flex justify-between items-center mt-2 text-xs text-gray-500">
+                <span>UTC reset {new Date(quota.resetAt).toLocaleTimeString()}</span>
+                {quota.exceeded && (
+                  <span className="text-red-500 font-medium">{translations.quotaExceeded}</span>
+                )}
               </div>
             </div>
-          ))}
-        </div>
-      </section>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <p className="text-sm text-gray-500 text-center">{translations.loadingQuota}</p>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

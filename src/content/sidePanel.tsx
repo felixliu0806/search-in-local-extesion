@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import type { LanguageFeedback } from '../shared/types';
 import { getTranslations, type UiTranslations } from './i18n';

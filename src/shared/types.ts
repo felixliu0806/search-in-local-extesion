@@ -16,7 +16,7 @@ export type SentenceSuggestion = {
   userInput: string;
   rewritten: string;
   explanation: string;
-  focusPoints: string[];
+  focusPoints: FocusPoint[];
   intentTags: string[];
   sourceUrl?: string;
   timestamp: string;
@@ -66,4 +66,41 @@ export type ErrorResponse = {
   message: string;
 };
 
-export type RuntimeMessage = AnalyzeRequest | AnalyzeResponse | ErrorResponse;
+export type SaveToPhrasebookRequest = {
+  type: 'SAVE_TO_PHRASEBOOK';
+  feedback: LanguageFeedback;
+};
+
+export type OpenSidePanelRequest = {
+  type: 'OPEN_SIDE_PANEL';
+};
+
+export type ReplaceTextRequest = {
+  type: 'REPLACE_TEXT';
+  suggestion: string;
+  tabId?: number;
+  frameId?: number;
+};
+
+export type ShowFeedbackRequest = {
+  type: 'SHOW_FEEDBACK';
+  feedback: LanguageFeedback;
+  translations: any;
+  frameId?: number;
+};
+
+export type ShowLoadingRequest = {
+  type: 'SHOW_LOADING';
+  translations: any;
+  frameId?: number;
+};
+
+export type RuntimeMessage = 
+  | AnalyzeRequest 
+  | AnalyzeResponse 
+  | ErrorResponse 
+  | SaveToPhrasebookRequest
+  | OpenSidePanelRequest
+  | ReplaceTextRequest
+  | ShowFeedbackRequest
+  | ShowLoadingRequest;

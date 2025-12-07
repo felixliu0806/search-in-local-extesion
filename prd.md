@@ -53,10 +53,11 @@ Language Learning Chrome Plugin  Detailed Product Requirements Document PRD
 
  多句场景：每句作为一项，统一在一个 response list 中返回。
 
-  替换交互
+ 替换交互
  可逐句点击“替换句子”
  可一键“替换全部”为优化后的内容
  可复制优化建议全文
+  Replace 按钮需要将建议准确回填到原始输入框（包括 iframe 内的输入框），即便输入框失焦或侧边栏获得焦点也要能定位并替换。
 
   Phrasebook 模块（表达库）
 

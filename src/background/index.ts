@@ -1,5 +1,4 @@
 import { addPhrasebookEntries, ensureMigrations, getQuotaState, incrementQuota, savePhrasebookEntry } from '../storage';
-import { splitIntoSentences } from '../shared/sentence';
 import {
   AnalyzeRequest,
   AnalyzeResponse,
@@ -26,7 +25,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
       });
     return true;
   } else if (message?.type === 'SAVE_TO_PHRASEBOOK') {
-    handleSaveToPhrasebook(message.feedback)
+    handleSaveToPhrasebook((message as any).feedback)
       .then(sendResponse)
       .catch((error: unknown) => {
         const response: ErrorResponse = {
@@ -38,10 +37,39 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     return true;
   } else if (message?.type === 'OPEN_SIDE_PANEL') {
     // 打开标准侧边栏
-    chrome.sidePanel.open({
-      tabId: _sender.tab?.id,
-    });
+    if (_sender.tab?.id) {
+      chrome.sidePanel.open({
+        tabId: _sender.tab.id,
+      });
+    }
     return true;
+  } else if (message?.type === 'REPLACE_TEXT') {
+    const msg = message as any;
+    const tabId = msg.tabId ?? _sender.tab?.id;
+    if (tabId !== undefined) {
+      console.log('[BACKGROUND] forward REPLACE_TEXT', {
+        tabId,
+        frameId: msg.frameId ?? _sender.frameId,
+        hasSenderTab: !!_sender.tab,
+        hasSuggestion: !!msg.suggestion,
+      });
+      const sendOptions = msg.frameId !== undefined ? { frameId: msg.frameId } : {};
+      chrome.tabs.sendMessage(
+        tabId,
+        {
+          type: 'REPLACE_TEXT',
+          suggestion: msg.suggestion,
+        },
+        sendOptions,
+        () => {
+          // 没有响应也不报错
+        }
+      );
+    } else {
+      console.warn('[BACKGROUND] REPLACE_TEXT with no tabId');
+    }
+    // 同步转发完成
+    return false;
   }
   return false;
 });

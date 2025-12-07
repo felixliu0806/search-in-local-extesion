@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { LanguageFeedback } from '../shared/types';
 import { getTranslations, type UiTranslations } from '../content/i18n';
 
@@ -6,12 +6,16 @@ type SidePanelState = {
   loading: boolean;
   feedback?: LanguageFeedback;
   translations: UiTranslations;
+  tabId?: number;
+  frameId?: number;
 };
 
 export function App() {
   const [state, setState] = useState<SidePanelState>({
     loading: false,
     translations: getTranslations('en'),
+    tabId: undefined,
+    frameId: undefined,
     feedback: {
       input: 'I very like this product, it is very good and I want to buy it very much.',
       suggestion: 'I really love this product, it is excellent and I want to purchase it badly.',
@@ -53,19 +57,23 @@ export function App() {
 
   useEffect(() => {
     // 监听来自内容脚本的消息
-    const handleMessage = (message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+    const handleMessage = (message: any, sender: chrome.runtime.MessageSender, _sendResponse: (response?: any) => void) => {
       if (message.type === 'SHOW_FEEDBACK') {
-        setState({
+        setState((prev) => ({
           loading: false,
           feedback: message.feedback,
           translations: message.translations,
-        });
+          tabId: sender.tab?.id ?? prev.tabId,
+          frameId: message.frameId ?? sender.frameId ?? prev.frameId,
+        }));
       } else if (message.type === 'SHOW_LOADING') {
-        setState({
+        setState((prev) => ({
           loading: true,
           feedback: undefined,
           translations: message.translations,
-        });
+          tabId: sender.tab?.id ?? prev.tabId,
+          frameId: message.frameId ?? sender.frameId ?? prev.frameId,
+        }));
       } else if (message.type === 'CLOSE_PANEL') {
         setState(prev => ({
           ...prev,
@@ -83,13 +91,40 @@ export function App() {
 
   const handleReplace = () => {
     if (state.feedback) {
-      // 向内容脚本发送替换请求
+      const sendReplaceMessage = (tabId: number) => {
+        const targetFrameId = state.frameId ?? 0;
+        console.log('[SidePanel] sending REPLACE_TEXT to tab', {
+          tabId,
+          frameId: targetFrameId,
+          hasFeedback: !!state.feedback,
+        });
+        const message = {
+          type: 'REPLACE_TEXT',
+          suggestion: state.feedback!.suggestion,
+          frameId: targetFrameId,
+        };
+
+        const callback = () => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SidePanel] sendMessage lastError', chrome.runtime.lastError.message, {
+              tabId,
+              frameId: targetFrameId,
+            });
+          }
+        };
+
+        chrome.tabs.sendMessage(tabId, message, { frameId: targetFrameId }, callback);
+      };
+
+      if (state.tabId !== undefined) {
+        sendReplaceMessage(state.tabId);
+        return;
+      }
+
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id!, {
-            type: 'REPLACE_TEXT',
-            suggestion: state.feedback!.suggestion,
-          });
+        const targetTabId = tabs[0]?.id;
+        if (targetTabId !== undefined) {
+          sendReplaceMessage(targetTabId);
         }
       });
     }

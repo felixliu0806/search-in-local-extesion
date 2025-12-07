@@ -9,5 +9,16 @@
   "save": "Save to Phrasebook",
   "close": "Close",
   "loading": "Analyzing your text...",
-  "noContent": "No content to display. Please select text and use the extension."
+  "noContent": "No content to display. Please select text and use the extension.",
+  "popupTitle": "Language Assistant",
+  "popupDescription": "Sentence-level rewrite and enhancement assistant",
+  "languagePair": "Language Pair",
+  "model": "Model",
+  "quota": "Usage Quota",
+  "quotaExceeded": "Exceeded",
+  "loadingQuota": "Loading quota...",
+  "phrasebook": "Phrasebook (latest)",
+  "noPhrasebookEntries": "No entries yet. Start using the assistant to save phrases.",
+  "today": "Today",
+  "limit": "Limit"
 }
