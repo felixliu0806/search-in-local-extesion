@@ -65,7 +65,7 @@ function createTriggerButton(): HTMLButtonElement {
   btn.id = BUTTON_ID;
   btn.type = 'button';
   btn.textContent = '✨';
-  btn.style.position = 'fixed';
+  btn.style.position = 'absolute';
   btn.style.zIndex = '2147483647';
   btn.style.padding = '6px 10px';
   btn.style.background = '#2563eb';
@@ -110,7 +110,7 @@ function positionButton(): void {
   // 使用固定尺寸，避免每次重新计算导致的抖动
   const btnWidth = 36;
   const btnHeight = 32;
-  
+
   // 获取元素相对于视口的位置
   const rect = activeElement.getBoundingClientRect();
   
@@ -125,14 +125,12 @@ function positionButton(): void {
     // 对于textarea和其他元素，按钮定位在右下角，离底部8px
     top = rect.bottom - btnHeight - 8;
   }
-  
+
   let left = rect.right - btnWidth - 4;
-  
-  // 确保按钮在视窗内
-  const maxLeft = window.innerWidth - btnWidth - BUTTON_EDGE_MARGIN;
-  if (left > maxLeft) left = maxLeft;
-  if (left < BUTTON_EDGE_MARGIN) left = BUTTON_EDGE_MARGIN;
-  if (top < BUTTON_EDGE_MARGIN) top = BUTTON_EDGE_MARGIN;
+
+  // 将定位转换为文档坐标，保证按钮跟随输入框而不是视口
+  top += window.scrollY;
+  left += window.scrollX;
   
   // 添加日志记录定位信息
   log('Positioning button', {

@@ -22,9 +22,9 @@ Language Learning Chrome Plugin  Detailed Product Requirements Document PRD
   触发方式
  鼠标聚焦输入框时，右下角浮现悬浮按钮（图标/）。
  快捷键触发建议使用“三击空格（space x3）”。
-1. 🧷 输入框右下角外侧「浮动按钮」✅（推荐）
+1. 🧷 输入框右下角「浮动按钮」✅（推荐）
 
-悬浮在输入框的外部右下角，距离框体 8–12px；
+固定在输入框内部或紧贴框体右下角，跟随输入框移动和缩放，不随文字滚动脱离输入区域；
 
 类似 Grammarly 插件、Notion AI 那种样式；
 
