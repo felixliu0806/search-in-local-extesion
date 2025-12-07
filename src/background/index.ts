@@ -1,4 +1,4 @@
-import { addPhrasebookEntries, ensureMigrations, getQuotaState, incrementQuota } from '../storage';
+import { addPhrasebookEntries, ensureMigrations, getQuotaState, incrementQuota, savePhrasebookEntry } from '../storage';
 import { splitIntoSentences } from '../shared/sentence';
 import {
   AnalyzeRequest,
@@ -6,6 +6,7 @@ import {
   ErrorResponse,
   RuntimeMessage,
   SentenceSuggestion,
+  LanguageFeedback,
 } from '../shared/types';
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -23,6 +24,23 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
         };
         sendResponse(response);
       });
+    return true;
+  } else if (message?.type === 'SAVE_TO_PHRASEBOOK') {
+    handleSaveToPhrasebook(message.feedback)
+      .then(sendResponse)
+      .catch((error: unknown) => {
+        const response: ErrorResponse = {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        };
+        sendResponse(response);
+      });
+    return true;
+  } else if (message?.type === 'OPEN_SIDE_PANEL') {
+    // 打开标准侧边栏
+    chrome.sidePanel.open({
+      tabId: _sender.tab?.id,
+    });
     return true;
   }
   return false;
@@ -63,6 +81,30 @@ async function handleAnalyze(request: AnalyzeRequest): Promise<AnalyzeResponse |
   
   console.log('[BACKGROUND] Sending response:', response);
   return response;
+}
+
+async function handleSaveToPhrasebook(feedback: LanguageFeedback): Promise<{ success: boolean }> {
+  console.log('[BACKGROUND] handleSaveToPhrasebook called with feedback:', feedback);
+  
+  // 创建短语簿条目
+  const entry: SentenceSuggestion = {
+    userInput: feedback.input,
+    rewritten: feedback.suggestion,
+    explanation: feedback.explanation.join(' '),
+    focusPoints: feedback.focus_points.map(fp => ({
+      source: fp.source,
+      target: fp.target,
+      reason: fp.reason,
+    })),
+    intentTags: [],
+    timestamp: new Date().toISOString(),
+    favorited: true,
+  };
+  
+  await savePhrasebookEntry(entry);
+  console.log('[BACKGROUND] Saved to phrasebook:', entry);
+  
+  return { success: true };
 }
 
 async function generateMockSuggestions(sentences: string[]): Promise<SentenceSuggestion[]> {

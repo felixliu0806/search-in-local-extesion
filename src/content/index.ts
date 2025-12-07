@@ -1,7 +1,6 @@
 import { getUserLanguagePreference } from '../shared/languagePreference';
 import { LanguageFeedback } from '../shared/types';
 import { getTranslations } from './i18n';
-import { SidePanelController } from './sidePanel';
 
 const BUTTON_ID = 'lla-caret-trigger';
 const DEBOUNCE_MS = 800;
@@ -11,9 +10,6 @@ const LOG_PREFIX = '[LLA]';
 let activeElement: HTMLElement | null = null;
 let triggerButton: HTMLButtonElement | null = null;
 let debounceTimer: number | null = null;
-const sidePanel = new SidePanelController({
-  onReplace: (suggestion: string) => replaceActiveElementText(suggestion),
-});
 
 function log(message: string, data?: unknown): void {
   try {
@@ -259,7 +255,15 @@ async function handleTriggerClick(): Promise<void> {
 
   const languagePreference = await getUserLanguagePreference();
   const translations = getTranslations(languagePreference.nativeLanguage);
-  sidePanel.showLoading(translations);
+
+  // 打开标准侧边栏
+  await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+
+  // 向侧边栏发送加载状态
+  chrome.runtime.sendMessage({
+    type: 'SHOW_LOADING',
+    translations,
+  });
 
   const requestPayload = {
     input: text,
@@ -269,7 +273,12 @@ async function handleTriggerClick(): Promise<void> {
 
   try {
     const feedback = await requestLanguageFeedback(requestPayload);
-    sidePanel.renderFeedback(feedback, translations);
+    // 向侧边栏发送反馈数据
+    chrome.runtime.sendMessage({
+      type: 'SHOW_FEEDBACK',
+      feedback,
+      translations,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log('handleTriggerClick: failed to get feedback', { error: errorMessage });
@@ -419,6 +428,15 @@ document.addEventListener('focusin', handleFocusIn, true);
 document.addEventListener('focusout', handleFocusOut, true);
 document.addEventListener('keydown', handleKeydown, true);
 document.addEventListener('click', handleClick, true);
+
+// 监听来自侧边栏的消息
+chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+  if (message.type === 'REPLACE_TEXT') {
+    replaceActiveElementText(message.suggestion);
+    return true;
+  }
+  return false;
+});
 
 // 监听滚动事件，直接更新按钮位置
 window.addEventListener(

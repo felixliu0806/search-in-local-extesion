@@ -100,3 +100,15 @@ export async function updatePhrasebookEntry(id: string, partial: Partial<Phraseb
   await chrome.storage.local.set({ [STORAGE_KEYS.phrasebook]: updated });
   return updated;
 }
+
+export async function savePhrasebookEntry(entry: SentenceSuggestion): Promise<PhrasebookRecord[]> {
+  const existing = await getPhrasebook();
+  const timestamp = Date.now();
+  const enriched: PhrasebookRecord = {
+    ...entry,
+    id: `${timestamp}-0`,
+  };
+  const merged = [enriched, ...existing].slice(0, PHRASEBOOK_MAX_ITEMS);
+  await chrome.storage.local.set({ [STORAGE_KEYS.phrasebook]: merged });
+  return merged;
+}

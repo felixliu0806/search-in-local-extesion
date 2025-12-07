@@ -12,6 +12,7 @@ export type UiTranslations = {
   save: string;
   close: string;
   loading: string;
+  noContent: string;
 };
 
 type TranslationMap = Record<string, UiTranslations>;

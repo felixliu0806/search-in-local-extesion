@@ -8,5 +8,6 @@
   "replace": "Replace",
   "save": "Save to Phrasebook",
   "close": "Close",
-  "loading": "Analyzing your text..."
+  "loading": "Analyzing your text...",
+  "noContent": "No content to display. Please select text and use the extension."
 }
