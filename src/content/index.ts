@@ -635,6 +635,7 @@ function replaceTextInElement(element: HTMLElement, suggestion: string, selectio
     elementTag: element.tagName,
     isContentEditable: element.isContentEditable,
     hasSelection: !!selection,
+    hasLexicalAttr: element.hasAttribute('data-lexical-editor')
   });
 
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
@@ -651,6 +652,8 @@ function replaceTextInElement(element: HTMLElement, suggestion: string, selectio
       });
     } else {
       element.value = suggestion;
+      const newCursorPosition = suggestion.length;
+      element.setSelectionRange(newCursorPosition, newCursorPosition);
       log('replaceTextInElement: replaced entire text in input/textarea');
     }
     element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -659,51 +662,75 @@ function replaceTextInElement(element: HTMLElement, suggestion: string, selectio
   }
 
   if (element.isContentEditable) {
+    const isLexical = element.hasAttribute('data-lexical-editor');
+    const selectionObj = window.getSelection();
     const fullText = element.textContent || '';
-    if (selection) {
-      const startPos = Math.max(0, Math.min(selection.start, fullText.length));
-      const endPos = Math.max(startPos, Math.min(selection.end, fullText.length));
-      let replaced = false;
+    
+    element.focus();
+    
+    if (selectionObj) {
+      if (selection) {
+        // Handle case with selection
+        const startPos = Math.max(0, Math.min(selection.start, fullText.length));
+        const endPos = Math.max(startPos, Math.min(selection.end, fullText.length));
+        let replaced = false;
+        
+        try {
+          const range = document.createRange();
+          let startNode: Node | null = element;
+          let startOffset = 0;
+          let endNode: Node | null = element;
+          let endOffset = 0;
+          let currentLength = 0;
+          let foundStart = false;
+          let foundEnd = false;
 
-      const selectionObj = window.getSelection();
-      if (selectionObj) {
-        element.focus();
-        const range = document.createRange();
-        let startNode: Node | null = element;
-        let startOffset = 0;
-        let endNode: Node | null = element;
-        let endOffset = 0;
-        let currentLength = 0;
-        let foundStart = false;
-        let foundEnd = false;
-
-        function traverseNodes(node: Node): void {
-          if (foundEnd) return;
-          if (node.nodeType === Node.TEXT_NODE) {
-            const nodeLength = node.textContent?.length || 0;
-            if (!foundStart && currentLength + nodeLength > startPos) {
-              startNode = node;
-              startOffset = startPos - currentLength;
-              foundStart = true;
-            }
-            if (!foundEnd && currentLength + nodeLength > endPos) {
-              endNode = node;
-              endOffset = endPos - currentLength;
-              foundEnd = true;
-            }
-            currentLength += nodeLength;
-          } else {
-            for (let i = 0; i < node.childNodes.length; i++) {
-              traverseNodes(node.childNodes[i]);
+          function traverseNodes(node: Node): void {
+            if (foundEnd) return;
+            if (node.nodeType === Node.TEXT_NODE) {
+              const nodeLength = node.textContent?.length || 0;
+              if (!foundStart && currentLength + nodeLength > startPos) {
+                startNode = node;
+                startOffset = startPos - currentLength;
+                foundStart = true;
+              }
+              if (!foundEnd && currentLength + nodeLength > endPos) {
+                endNode = node;
+                endOffset = endPos - currentLength;
+                foundEnd = true;
+              }
+              currentLength += nodeLength;
+            } else {
+              for (let i = 0; i < node.childNodes.length; i++) {
+                traverseNodes(node.childNodes[i]);
+              }
             }
           }
+
+          traverseNodes(element);
+
+          if (foundStart && foundEnd) {
+            range.setStart(startNode!, startOffset);
+            range.setEnd(endNode!, endOffset);
+            range.deleteContents();
+            const textNode = document.createTextNode(suggestion);
+            range.insertNode(textNode);
+            range.setStartAfter(textNode);
+            range.setEndAfter(textNode);
+            selectionObj.removeAllRanges();
+            selectionObj.addRange(range);
+            log('replaceTextInElement: replaced selected text in contenteditable element');
+            replaced = true;
+          }
+        } catch (error) {
+          log('replaceTextInElement: error with range selection', error);
         }
 
-        traverseNodes(element);
-
-        if (foundStart && foundEnd) {
-          range.setStart(startNode!, startOffset);
-          range.setEnd(endNode!, endOffset);
+        if (!replaced) {
+          // Fallback: select all and replace
+          log('replaceTextInElement: fallback to select all and replace for contenteditable');
+          const range = document.createRange();
+          range.selectNodeContents(element);
           range.deleteContents();
           const textNode = document.createTextNode(suggestion);
           range.insertNode(textNode);
@@ -711,22 +738,52 @@ function replaceTextInElement(element: HTMLElement, suggestion: string, selectio
           range.setEndAfter(textNode);
           selectionObj.removeAllRanges();
           selectionObj.addRange(range);
-          log('replaceTextInElement: replaced selected text in contenteditable element');
-          replaced = true;
+        }
+      } else {
+        // No selection: select all and replace
+        log('replaceTextInElement: no selection, selecting all and replacing');
+        
+        if (isLexical) {
+          // Special handling for Lexical editors
+          try {
+            // First try execCommand for Lexical
+            document.execCommand('selectAll', false);
+            document.execCommand('delete', false);
+            document.execCommand('insertText', false, suggestion);
+            log('replaceTextInElement: replaced all text in Lexical editor using execCommand');
+          } catch (error) {
+            log('replaceTextInElement: execCommand failed for Lexical, using range fallback', error);
+            // Fallback to range manipulation
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.deleteContents();
+            const textNode = document.createTextNode(suggestion);
+            range.insertNode(textNode);
+            range.setStartAfter(textNode);
+            range.setEndAfter(textNode);
+            selectionObj.removeAllRanges();
+            selectionObj.addRange(range);
+          }
+        } else {
+          // Standard contenteditable
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          range.deleteContents();
+          const textNode = document.createTextNode(suggestion);
+          range.insertNode(textNode);
+          range.setStartAfter(textNode);
+          range.setEndAfter(textNode);
+          selectionObj.removeAllRanges();
+          selectionObj.addRange(range);
+          log('replaceTextInElement: replaced all text in standard contenteditable element');
         }
       }
-
-      if (!replaced) {
-        const newText = fullText.slice(0, startPos) + suggestion + fullText.slice(endPos);
-        element.textContent = newText;
-        log('replaceTextInElement: fallback replace selection by textContent for contenteditable');
-      }
     } else {
+      // Fallback if no selection object available
       element.textContent = suggestion;
-      log('replaceTextInElement: replaced entire text in contenteditable element');
+      log('replaceTextInElement: fallback to textContent replacement');
     }
 
-    element.focus();
     element.dispatchEvent(new InputEvent('input', { bubbles: true, data: suggestion, inputType: 'insertText' }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     replacementTarget = null;
@@ -753,7 +810,8 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
     selection: replacementTarget?.selection || selectedTextInfo || lastSelectionInfo,
   });
     replaceActiveElementText(message.suggestion);
-    // 闂傚倷绀侀幉锟犳嚌妤ｅ啫瀚夐柨鐔剁矙閺屻劑鎮㈤崙銈嗗�归柟甯�鎷烽柛鏃�宀搁弻锝夋晲韫囨柨锟藉綊姊绘担鐑樺殌闁宦板姂瀹曟繆锟藉繐危閹帮拷閳规垹锟斤綇鎷风紒锟藉�ュ�嬬厽婵★拷閼测晛绗℃繛瀵稿У閿氶懣鎰版煕閵夛絽濡跨紒鐘崇墵閹�妤呭垂閿熻棄螞閸愶拷瀵�濠氬川閿熶粙鏁撻懞銉夋垵锕㈢憴鍕�鐝堕柨鐕傛嫹
+    // Explicitly call sendResponse to prevent "message port closed" error
+    _sendResponse();
     return false;
   }
   return false;
