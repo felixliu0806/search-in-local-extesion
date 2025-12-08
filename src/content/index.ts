@@ -541,26 +541,27 @@ function requestLanguageFeedback(payload: LanguageRequestPayload): Promise<Langu
     setTimeout(() => {
       const suggestion = payload.targetLanguage === 'en'
         ? 'I really love this product.'
-        : '闂傚倷鑳堕幊鎾绘偤閵娾晛鍨傞柣銏犵仛閿熷�愬灲婵�锟介柕鍫濇噽閻涖儱鈹戦悩璇у伐閻庢碍鎮傞獮蹇涙倻閽樺�涙嫹閿熶粙鏌ㄥ┑鍡樺窛闁跨喓鏅�閹虫捇鍩ユ径鎰�绠奸柛鏇�鎷烽悗姘筹拷鍕�绠鹃悗娑欙拷鑲╂勾闂佸憡鍔忛弲婊堝磿瀹�鍕�鈷戦梻鍫熺⊕閿涙棃鏌熼崙銈嗗��';
+        : '我很喜欢这个产品';
 
       const feedback: LanguageFeedback = {
         input: payload.input,
         suggestion,
-        focus_points: [
+                focus_points: [
           {
-            source: '闂佽�查�搁悘姘�锟姐垺锕㈤幃褔宕卞☉妯哄殤闂佸疇妗ㄧ拋鏌ュ几鎼淬劍鐓ラ柣鏇炲�圭�氾拷',
+            source: '很喜欢',
             target: 'really love',
-            reason: "濠电姷锟藉�嬪�归梺鎸庣箓缁绘垹锟芥熬鎷� 'like very much' 闂傚倷绀侀幖锟芥繛灞傚姂閺佹捇鎸婃径娑欏�归柨鐔绘�勯埢鎾村�肩�涙�煎幗闂佺�呮�ｉ崑鐐碉拷姘炬嫹",
+            reason: "比 'like very much' 更自然",
           },
         ],
         explanation: [
-          '闂傚倷鑳堕崑銊╁磿閼硷拷缁�锟介柨鐔虹�峚lly love闂傚倷鑳堕崑銊╁磿婵犳艾绠�闁跨噦鎷� 濠电姷锟藉�嬪�归梺鎸庣箓缁绘垹锟芥熬鎷� 闂傚倷鑳堕崑銊╁磿閼硷拷缁�锟介柟鐓庡劶e very much闂傚倷鑳堕崑銊╁磿婵犳艾绠�闁跨噦鎷� 闂傚倷绀侀幖锟芥繛璇х畱閿熻棄鍚嬮悷銊╁Φ閹帮拷閳藉�婏拷姗堟嫹閻庢碍宀搁弻銊╂偄閸撲胶鐓撻悗瑙勬礈婵烇拷鐎碉拷娴犲��唯闁跨喍绮欓獮蹇涙倻閼恒儲娅㈤梺璺ㄥ櫐閹凤拷',
-          '闂備浇宕甸崑鐐电矙韫囨稑绀夐煫鍥ㄧ☉缁犵敻鏌ㄩ悢鍓佺煓闁哄瞼鍠栭獮宥夋晸娴犲��绐楅柟鐗堟緲绾惧潡鐓�閸ャ劎鈯曢柛銈呯焸閺岀喓绱掑Ο铏圭懆闂佺�跨箰閿曪拷闁哄矉绻濆畷鍫曞Ω閿斿墽鈻忛柣搴わ拷鍕�鍊愬ù婊冪埣瀵�锟界�广儱鎳愰弳鍡涙煕閺団�崇厫閻庢艾缍婇弻娑氫沪閸撗嶆嫹瀹ュ�婄９闁靛牆娲ㄧ壕濂告煥閻斿墎鐭欑�规洩缍佹俊鐑芥晝閿熶粙寮ㄩ敓浠嬫⒒娓氾拷濞肩粯淇婇崶锟藉畷鏇㈠Χ閸涳拷閺嬪秵绻涢崱妯诲碍鏉╂繈姊虹捄銊ユ珢闁瑰嚖鎷�',
+          '“really love” 比 “like very much” 更口语化。',
+          '表达感情色彩更强，适合社交场景。',
         ],
         alternatives: [
           "I'm a huge fan of this product.",
           'I absolutely adore this product.',
         ],
+    
       };
 
       log('requestLanguageFeedback: resolved mock feedback');

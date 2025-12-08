@@ -42,7 +42,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
         tabId: _sender.tab.id,
       });
     }
-    return true;
+    return false;
   } else if (message?.type === 'REPLACE_TEXT') {
     const msg = message as any;
     const tabId = msg.tabId ?? _sender.tab?.id;
