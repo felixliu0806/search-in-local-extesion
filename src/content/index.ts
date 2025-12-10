@@ -31,6 +31,18 @@ let replacementTarget: {
   };
 } | null = null;
 
+function persistReplacementTarget(target: typeof replacementTarget): void {
+  replacementTarget = target;
+  try {
+    (window as any).__llaReplacementTarget = target;
+    if (target?.element) {
+      lastEditableElement = target.element;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+}
+
 function log(message: string, data?: unknown): void {
   try {
     console.log(LOG_PREFIX, message, data ?? '');
@@ -228,8 +240,14 @@ function debounceShowButton(): void {
 }
 
 async function handleTriggerClick(): Promise<void> {
-  if (!chrome?.runtime?.id) {
-    log('handleTriggerClick: runtime unavailable, abort');
+  const runtimeReady = hasRuntimeMessaging();
+  if (!runtimeReady) {
+    log('handleTriggerClick: runtime unavailable, abort', {
+      hasChrome: typeof chrome !== 'undefined',
+      hasRuntime: !!chrome?.runtime,
+      hasSendMessage: typeof chrome?.runtime?.sendMessage === 'function',
+      runtimeId: chrome?.runtime?.id,
+    });
     return;
   }
   if (!activeElement) {
@@ -319,16 +337,16 @@ async function handleTriggerClick(): Promise<void> {
             start: 0,
             end: typeof text === 'string' ? text.length : 0,
           };
-    replacementTarget = {
+    persistReplacementTarget({
       element: activeElement,
       selection: {
         start: selectionForSave.start,
         end: selectionForSave.end,
       },
-    };
+    });
     log('handleTriggerClick: saved replacement target', {
       element: activeElement.tagName,
-      selection: replacementTarget.selection,
+      selection: replacementTarget?.selection,
       frameId,
     });
   }
@@ -388,16 +406,16 @@ async function handleTriggerClick(): Promise<void> {
                   ? activeElement.value.length
                   : (activeElement.textContent || '').length,
             };
-      replacementTarget = {
+      persistReplacementTarget({
         element: activeElement,
         selection: {
           start: selectionForSave.start,
           end: selectionForSave.end,
         },
-      };
+      });
       log('handleTriggerClick: saved replacement target', {
         element: activeElement.tagName,
-        selection: replacementTarget.selection,
+        selection: replacementTarget?.selection,
         frameId,
       });
     }
@@ -560,8 +578,7 @@ function requestLanguageFeedback(payload: LanguageRequestPayload): Promise<Langu
         alternatives: [
           "I'm a huge fan of this product.",
           'I absolutely adore this product.',
-        ],
-    
+        ]
       };
 
       log('requestLanguageFeedback: resolved mock feedback');
@@ -571,6 +588,14 @@ function requestLanguageFeedback(payload: LanguageRequestPayload): Promise<Langu
 }
 
 function replaceActiveElementText(suggestion: string): void {
+  if (!replacementTarget) {
+    const persisted = (window as any).__llaReplacementTarget as { element: HTMLElement; selection: { start: number; end: number } } | null;
+    if (persisted?.element) {
+      replacementTarget = persisted;
+      lastEditableElement = persisted.element;
+    }
+  }
+
   // 婵犵數鍋炲�兼瑩宕ョ�ｏ拷閺佸��姊洪崨濞氭垹绮欓幒妤�绠�闁告冻鎷烽柟鐟板�版俊鎼佹晜閼恒儻鎷烽姀锛勭�鹃柨婵嗘噺婢跺嫮绱掔拠鎻掞拷鍧楀箖濞诧拷婵℃悂鍩￠崒姘�澹勯梻浣告啞濞测晠骞忛柨瀣�绠鹃悗娑欙拷鍏煎垱濡ょ姷鍋為崹鎸庢叏閿熶粙鏌曡箛銉х？闁绘稏鍎靛�婃椽宕�閸曪拷瀛濆┑鐐存綑鐎氾拷婵″弶鍔曢埞鎴狅拷锝忔嫹缂侊拷閸岀偞鐓犻柛婵勫劵閹烽攱寰勭�ｏ拷閿熻棄缍婇弻宥夊Ψ閿曪拷缁插�氭煃鐠囪尙绠婚柡宀嬬秮閺佹挻绂掔�ｏ拷鎯熼梺鎸庢⒐閸ㄦ繄鍒掗敓浠嬫⒒娴ｅ憡鍟為柤鐟板⒔閼洪亶鎳栭埡鍐ㄥ触闂佸搫锟藉��鐏嶉柡瀣�閰ｉ弻宥夊Ψ閵夈儲姣愰柣鐘辨祰鐏忔瑧妲愰幘璇茬＜婵炴垶鑹鹃埛濠勭磽娴ｆ枻鎷风憴鍕�锟藉綊姊绘担鐚存嫹鐠恒劎锟戒即鏌涢悢绋匡拷鍡欏垝閸�銉︽櫢闁跨噦鎷�
   let targetElement =
     replacementTarget?.element || activeElement || lastEditableElement;
@@ -614,13 +639,13 @@ function replaceActiveElementText(suggestion: string): void {
   } else if (targetElement.isContentEditable) {
     targetLength = (targetElement.textContent || '').length;
   }
-  const fallbackSelection = targetLength > 0 ? { start: 0, end: targetLength } : null;
-  const rawSelection = replacementTarget?.selection || selectedTextInfo || lastSelectionInfo || fallbackSelection;
+  const rawSelection = replacementTarget?.selection || selectedTextInfo || lastSelectionInfo || null;
+  const normalizedSelection = isFiniteSelection(rawSelection) ? normalizeSelection(rawSelection, targetLength) : null;
   const useSelection =
-    rawSelection &&
+    normalizedSelection &&
     targetLength > 0 &&
-    !(rawSelection.start === 0 && rawSelection.end === targetLength)
-      ? rawSelection
+    !(normalizedSelection.start === 0 && normalizedSelection.end === targetLength)
+      ? normalizedSelection
       : null;
   log('replaceActiveElementText: using selection', useSelection);
 
@@ -631,167 +656,237 @@ function replaceActiveElementText(suggestion: string): void {
 
 // 闂備礁鎼�閿熻棄锕︽晶鏇㈡煙閸愭彃锟解晠骞堥妸鈺傛櫢濞寸姴锟斤拷閻撴洟鏌熸潏鍓у埌鐞氭岸姊洪崫鍕�锟芥盯宕伴弽锟藉��锟界�广儱鎷戦幏宄帮拷妤�鐗婄�氱懓鈹戦悪鍛�瀚归梺璺ㄥ枍缁�娆撳蓟閻旇櫣鐭欓柟绋垮�╅幃娆撴⒑娴兼瑧绉�缂佺姵鐗曢悾宄拔旈崨锟界粈鍐�鏌ㄩ悢鐑樻珪缂侊拷閸�锟芥禒锕傚礈瑜夐弸鏍�姊虹捄銊ユ瀺缂侊拷濞嗗骏鎷烽敓浠嬪箻閿熶粙鐛�閹帮拷閹�鏃堝灳瀹曞洤鎼搁梻鍌欑�侀幖锟介柛濠勶拷妫垫椽鏁冮敓浠嬫晝閵忋倖鏅搁柨鐕傛嫹
 
+function isTextInputLike(element: HTMLElement): element is HTMLInputElement | HTMLTextAreaElement {
+  if (element instanceof HTMLTextAreaElement) {
+    return true;
+  }
+  if (element instanceof HTMLInputElement) {
+    const type = (element.type || 'text').toLowerCase();
+    const supportedTypes = ['text', 'search', 'email', 'url', 'password', 'number', 'tel'];
+    return supportedTypes.includes(type);
+  }
+  return false;
+}
+
+function isRichEditorElement(element: HTMLElement): boolean {
+  if (!element.isContentEditable) return false;
+  if (element.closest('[data-lexical-editor]')) return true;
+
+  const keywords = ['lexical', 'draftjs', 'draft', 'prosemirror', 'quill', 'slate'];
+  let node: HTMLElement | null = element;
+  while (node) {
+    const className = typeof node.className === 'string' ? node.className.toLowerCase() : '';
+    const dataTokens = Object.values(node.dataset || {}).join(' ').toLowerCase();
+    const tokens = `${className} ${dataTokens}`;
+    if (keywords.some((keyword) => tokens.includes(keyword))) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+
+  return false;
+}
+
+function isPlainContentEditable(element: HTMLElement): boolean {
+  return element.isContentEditable && !isRichEditorElement(element);
+}
+
+function isFiniteSelection(selection: { start: number; end: number } | null | undefined): selection is { start: number; end: number } {
+  return (
+    !!selection &&
+    Number.isFinite((selection as { start: number; end: number }).start) &&
+    Number.isFinite((selection as { start: number; end: number }).end)
+  );
+}
+
+function normalizeSelection(selection: { start: number; end: number } | null, maxLength: number): { start: number; end: number } {
+  const length = Math.max(0, maxLength);
+  if (!isFiniteSelection(selection)) {
+    return { start: 0, end: length };
+  }
+
+  const safeStart = Math.max(0, Math.min(selection.start, length));
+  const safeEnd = Math.max(safeStart, Math.min(selection.end, length));
+  return { start: safeStart, end: safeEnd };
+}
+
+function getRangeFromOffsets(root: HTMLElement, selection: { start: number; end: number }): Range | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let currentOffset = 0;
+  let startNode: Node | null = null;
+  let endNode: Node | null = null;
+  let startOffset = 0;
+  let endOffset = 0;
+
+  let node = walker.nextNode();
+  while (node) {
+    const textLength = node.textContent?.length ?? 0;
+    const nodeStart = currentOffset;
+    const nodeEnd = currentOffset + textLength;
+
+    if (!startNode && selection.start >= nodeStart && selection.start <= nodeEnd) {
+      startNode = node;
+      startOffset = selection.start - nodeStart;
+    }
+
+    if (!endNode && selection.end >= nodeStart && selection.end <= nodeEnd) {
+      endNode = node;
+      endOffset = selection.end - nodeStart;
+    }
+
+    currentOffset = nodeEnd;
+    if (startNode && endNode) {
+      break;
+    }
+    node = walker.nextNode();
+  }
+
+  if (!startNode || !endNode) {
+    return null;
+  }
+
+  const range = document.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  return range;
+}
+
+function dispatchReplacementEvents(element: HTMLElement, suggestion: string): void {
+  element.dispatchEvent(
+    new InputEvent('input', {
+      bubbles: true,
+      data: suggestion,
+      inputType: 'insertReplacementText',
+    })
+  );
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function replaceInTextInput(element: HTMLInputElement | HTMLTextAreaElement, suggestion: string, selectionInfo: { start: number; end: number } | null): void {
+  const { start, end } = normalizeSelection(selectionInfo, element.value.length);
+  const originalLength = element.value.length;
+  const prefix = element.value.slice(0, start);
+  const suffix = element.value.slice(end);
+
+  element.focus();
+  element.setSelectionRange(start, end);
+  element.value = `${prefix}${suggestion}${suffix}`;
+
+  const caretPosition = prefix.length + suggestion.length;
+  element.setSelectionRange(caretPosition, caretPosition);
+
+  log('replaceTextInElement: text input replacement', { start, end, caretPosition, originalLength });
+  dispatchReplacementEvents(element, suggestion);
+}
+
+function replaceInPlainContentEditable(element: HTMLElement, suggestion: string, selectionInfo: { start: number; end: number } | null): void {
+  const selection = window.getSelection();
+  const textLength = (element.textContent || '').length;
+  const normalized = normalizeSelection(selectionInfo, textLength);
+  const rangeFromOffsets = getRangeFromOffsets(element, normalized);
+  const range = rangeFromOffsets ?? document.createRange();
+
+  element.focus();
+
+  if (!rangeFromOffsets) {
+    range.selectNodeContents(element);
+  }
+
+  range.deleteContents();
+  const textNode = document.createTextNode(suggestion);
+  range.insertNode(textNode);
+  range.setStartAfter(textNode);
+  range.setEndAfter(textNode);
+
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  log('replaceTextInElement: plain contenteditable replacement', {
+    selection: normalized,
+    usedRangeFromOffsets: !!rangeFromOffsets,
+  });
+  dispatchReplacementEvents(element, suggestion);
+}
+
+function replaceInRichEditor(element: HTMLElement, suggestion: string, selectionInfo: { start: number; end: number } | null): void {
+  const selection = window.getSelection();
+  const textLength = (element.textContent || '').length;
+  const normalized = normalizeSelection(selectionInfo, textLength);
+
+  element.focus();
+
+  if (selection) {
+    selection.removeAllRanges();
+    const rangeFromOffsets = getRangeFromOffsets(element, normalized);
+    if (rangeFromOffsets) {
+      selection.addRange(rangeFromOffsets);
+    } else {
+      const fullRange = document.createRange();
+      fullRange.selectNodeContents(element);
+      selection.addRange(fullRange);
+    }
+  }
+
+  const beforeInput = new InputEvent('beforeinput', {
+    bubbles: true,
+    cancelable: true,
+    inputType: 'insertReplacementText',
+    data: suggestion,
+  });
+
+  const shouldProceed = element.dispatchEvent(beforeInput);
+  if (!shouldProceed) {
+    log('replaceTextInElement: beforeinput prevented by rich editor');
+    return;
+  }
+
+  element.dispatchEvent(
+    new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertReplacementText',
+      data: suggestion,
+    })
+  );
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+  log('replaceTextInElement: synthetic input dispatched for rich editor', { selection: selectionInfo ? normalized : 'all' });
+}
+
 function replaceTextInElement(element: HTMLElement, suggestion: string, selection: { start: number; end: number } | null) {
+  const isRichEditor = isRichEditorElement(element);
   log('replaceTextInElement: start', {
     elementTag: element.tagName,
     isContentEditable: element.isContentEditable,
+    isRichEditor,
     hasSelection: !!selection,
-    hasLexicalAttr: element.hasAttribute('data-lexical-editor')
   });
 
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    if (selection) {
-      const value = element.value;
-      const newValue = value.substring(0, selection.start) + suggestion + value.substring(selection.end);
-      element.value = newValue;
-      const newCursorPosition = selection.start + suggestion.length;
-      element.setSelectionRange(newCursorPosition, newCursorPosition);
-      log('replaceTextInElement: replaced selected text in input/textarea', {
-        originalLength: value.length,
-        newLength: newValue.length,
-        cursorPosition: newCursorPosition,
-      });
-    } else {
-      element.value = suggestion;
-      const newCursorPosition = suggestion.length;
-      element.setSelectionRange(newCursorPosition, newCursorPosition);
-      log('replaceTextInElement: replaced entire text in input/textarea');
-    }
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    replacementTarget = null;
+  if (isTextInputLike(element)) {
+    replaceInTextInput(element, suggestion, selection);
+    persistReplacementTarget(null);
     return;
   }
 
-  if (element.isContentEditable) {
-    const isLexical = element.hasAttribute('data-lexical-editor');
-    const selectionObj = window.getSelection();
-    const fullText = element.textContent || '';
-    
-    element.focus();
-    
-    if (selectionObj) {
-      if (selection) {
-        // Handle case with selection
-        const startPos = Math.max(0, Math.min(selection.start, fullText.length));
-        const endPos = Math.max(startPos, Math.min(selection.end, fullText.length));
-        let replaced = false;
-        
-        try {
-          const range = document.createRange();
-          let startNode: Node | null = element;
-          let startOffset = 0;
-          let endNode: Node | null = element;
-          let endOffset = 0;
-          let currentLength = 0;
-          let foundStart = false;
-          let foundEnd = false;
-
-          function traverseNodes(node: Node): void {
-            if (foundEnd) return;
-            if (node.nodeType === Node.TEXT_NODE) {
-              const nodeLength = node.textContent?.length || 0;
-              if (!foundStart && currentLength + nodeLength > startPos) {
-                startNode = node;
-                startOffset = startPos - currentLength;
-                foundStart = true;
-              }
-              if (!foundEnd && currentLength + nodeLength > endPos) {
-                endNode = node;
-                endOffset = endPos - currentLength;
-                foundEnd = true;
-              }
-              currentLength += nodeLength;
-            } else {
-              for (let i = 0; i < node.childNodes.length; i++) {
-                traverseNodes(node.childNodes[i]);
-              }
-            }
-          }
-
-          traverseNodes(element);
-
-          if (foundStart && foundEnd) {
-            range.setStart(startNode!, startOffset);
-            range.setEnd(endNode!, endOffset);
-            range.deleteContents();
-            const textNode = document.createTextNode(suggestion);
-            range.insertNode(textNode);
-            range.setStartAfter(textNode);
-            range.setEndAfter(textNode);
-            selectionObj.removeAllRanges();
-            selectionObj.addRange(range);
-            log('replaceTextInElement: replaced selected text in contenteditable element');
-            replaced = true;
-          }
-        } catch (error) {
-          log('replaceTextInElement: error with range selection', error);
-        }
-
-        if (!replaced) {
-          // Fallback: select all and replace
-          log('replaceTextInElement: fallback to select all and replace for contenteditable');
-          const range = document.createRange();
-          range.selectNodeContents(element);
-          range.deleteContents();
-          const textNode = document.createTextNode(suggestion);
-          range.insertNode(textNode);
-          range.setStartAfter(textNode);
-          range.setEndAfter(textNode);
-          selectionObj.removeAllRanges();
-          selectionObj.addRange(range);
-        }
-      } else {
-        // No selection: select all and replace
-        log('replaceTextInElement: no selection, selecting all and replacing');
-        
-        if (isLexical) {
-          // Special handling for Lexical editors
-          try {
-            // First try execCommand for Lexical
-            document.execCommand('selectAll', false);
-            document.execCommand('delete', false);
-            document.execCommand('insertText', false, suggestion);
-            log('replaceTextInElement: replaced all text in Lexical editor using execCommand');
-          } catch (error) {
-            log('replaceTextInElement: execCommand failed for Lexical, using range fallback', error);
-            // Fallback to range manipulation
-            const range = document.createRange();
-            range.selectNodeContents(element);
-            range.deleteContents();
-            const textNode = document.createTextNode(suggestion);
-            range.insertNode(textNode);
-            range.setStartAfter(textNode);
-            range.setEndAfter(textNode);
-            selectionObj.removeAllRanges();
-            selectionObj.addRange(range);
-          }
-        } else {
-          // Standard contenteditable
-          const range = document.createRange();
-          range.selectNodeContents(element);
-          range.deleteContents();
-          const textNode = document.createTextNode(suggestion);
-          range.insertNode(textNode);
-          range.setStartAfter(textNode);
-          range.setEndAfter(textNode);
-          selectionObj.removeAllRanges();
-          selectionObj.addRange(range);
-          log('replaceTextInElement: replaced all text in standard contenteditable element');
-        }
-      }
-    } else {
-      // Fallback if no selection object available
-      element.textContent = suggestion;
-      log('replaceTextInElement: fallback to textContent replacement');
-    }
-
-    element.dispatchEvent(new InputEvent('input', { bubbles: true, data: suggestion, inputType: 'insertText' }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    replacementTarget = null;
+  if (isRichEditor) {
+    replaceInRichEditor(element, suggestion, selection);
+    persistReplacementTarget(null);
     return;
   }
 
-  replacementTarget = null;
+  if (isPlainContentEditable(element)) {
+    replaceInPlainContentEditable(element, suggestion, selection);
+    persistReplacementTarget(null);
+    return;
+  }
+
+  element.textContent = suggestion;
+  dispatchReplacementEvents(element, suggestion);
+  persistReplacementTarget(null);
+}
+
+function hasRuntimeMessaging(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.runtime && typeof chrome.runtime.sendMessage === 'function';
 }
 
 document.addEventListener('input', handleInput, true);
@@ -805,6 +900,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
   if (message.type === 'REPLACE_TEXT') {
   log('onMessage: REPLACE_TEXT received', {
     fromFrameId: sender.frameId,
+    messageFrameId: (message as any).frameId,
     hasTarget: !!replacementTarget,
     hasActive: !!activeElement,
     hasLastEditable: !!lastEditableElement,
