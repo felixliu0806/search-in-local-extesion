@@ -51,6 +51,76 @@ function log(message: string, data?: unknown): void {
   }
 }
 
+function captureSelectionSnapshot(element: HTMLElement | null): { text: string; start: number; end: number } | null {
+  if (!element) return null;
+
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    const start = element.selectionStart ?? 0;
+    const end = element.selectionEnd ?? element.value.length;
+    const text =
+      start !== end && element.value
+        ? element.value.substring(start, end)
+        : element.value || '';
+    const finalStart = text ? start : 0;
+    const finalEnd = text ? end : element.value.length;
+    return {
+      text,
+      start: finalStart,
+      end: finalEnd,
+    };
+  }
+
+  if (element.isContentEditable) {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      if (!element.contains(range.commonAncestorContainer)) {
+        return null;
+      }
+      const selectedText = selection.toString();
+      const preCaretRange = range.cloneRange();
+      preCaretRange.selectNodeContents(element);
+      preCaretRange.setEnd(range.startContainer, range.startOffset);
+      const start = preCaretRange.toString().length;
+      const end = start + selectedText.length;
+      const baseText = element.textContent || '';
+      const finalText = selectedText || baseText;
+      const finalStart = selectedText ? start : 0;
+      const finalEnd = selectedText ? end : finalText.length;
+      return {
+        text: finalText,
+        start: finalStart,
+        end: finalEnd,
+      };
+    }
+    const fallback = element.textContent || '';
+    if (fallback) {
+      return {
+        text: fallback,
+        start: 0,
+        end: fallback.length,
+      };
+    }
+  }
+
+  const textContent = element.textContent || '';
+  if (textContent) {
+    return {
+      text: textContent,
+      start: 0,
+      end: textContent.length,
+    };
+  }
+
+  return null;
+}
+
+function updateSelectionCache(snapshot: { text: string; start: number; end: number } | null): void {
+  if (!snapshot) return;
+  selectedTextInfo = snapshot;
+  lastSelectionInfo = { start: snapshot.start, end: snapshot.end };
+}
+
 function isEditableElement(el: HTMLElement): boolean {
   const tag = el.tagName.toLowerCase();
   if (el.isContentEditable) return true;
@@ -110,6 +180,14 @@ function createTriggerButton(): HTMLButtonElement {
   btn.style.textAlign = 'center';
   btn.style.lineHeight = '32px';
   btn.title = 'View suggestions';
+
+  btn.addEventListener('pointerdown', (event) => {
+    // Prevent focus stealing so the selection remains before click handler runs
+    event.preventDefault();
+    event.stopPropagation();
+    const editable = findEditableElement() || activeElement || lastEditableElement;
+    updateSelectionCache(captureSelectionSnapshot(editable));
+  });
 
   btn.addEventListener('click', (event) => {
     event.preventDefault();
@@ -255,6 +333,8 @@ async function handleTriggerClick(): Promise<void> {
     return;
   }
 
+  updateSelectionCache(captureSelectionSnapshot(activeElement));
+
   let text: string = '';
   let selectedText: string = '';
   let start: number = 0;
@@ -289,6 +369,7 @@ async function handleTriggerClick(): Promise<void> {
     };
     lastSelectionInfo = { start: finalStart, end: finalEnd };
   } else if (activeElement.isContentEditable) {
+    const cachedSelection = selectedTextInfo;
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       selectedText = selection.toString();
@@ -298,11 +379,15 @@ async function handleTriggerClick(): Promise<void> {
       preCaretRange.setEnd(range.startContainer, range.startOffset);
       start = preCaretRange.toString().length;
       end = start + selectedText.length;
+    } else if (cachedSelection) {
+      selectedText = cachedSelection.text;
+      start = cachedSelection.start;
+      end = cachedSelection.end;
     }
-  const baseText = activeElement.textContent;
-  const finalText = typeof baseText === 'string' ? (selectedText || baseText) : (selectedText || '');
-    const finalStart = selectedText ? start : 0;
-    const finalEnd = selectedText ? end : finalText.length;
+    const baseText = activeElement.textContent;
+    const finalText = typeof baseText === 'string' ? (selectedText || baseText) : (selectedText || '');
+    const finalStart = selectedText ? start : cachedSelection?.start ?? 0;
+    const finalEnd = selectedText ? end : cachedSelection?.end ?? finalText.length;
     text = finalText;
     log('handleTriggerClick: contenteditable element', {
       selectedText,
@@ -474,6 +559,8 @@ function handleFocusIn(): void {
   if (editable) {
     activeElement = editable;
     lastEditableElement = editable;
+    selectedTextInfo = null;
+    lastSelectionInfo = null;
     log('handleFocusIn: set active and lastEditable', {
       tag: editable.tagName,
       isContentEditable: editable.isContentEditable,
@@ -491,7 +578,6 @@ function handleFocusOut(event: FocusEvent): void {
   
   // 闂傚倷绀侀幉锟犳偡闁�宥呯��闂佸灝锟斤拷缁犻箖鏌熼幑鎰�鐝�闁搞倕娲︾换娑㈠川閿熻棄锟芥﹫绠撴俊鐢稿箛閺夎法锟藉�氭煕閹帮拷閿熺獤鍕�锟藉綊鏌ｅΟ鍖℃嫹娴ｈ姤锟斤綁骞忛悩璇茬�甸柟鐧告嫹婵°倕鎳忛悡鏇㈢叓閸ャ劍灏�闁哄棛鍠撶槐鎺楁晸閽樺�屾殕闁告洩鎷锋俊鐐垫櫕閿熺晫娅㈤幏鐑芥煕閺団�崇厫閻庢氨鎳撻敓濮愬灱濞夋盯鏁撻挊澶愶拷鎼佺嵁閿熻棄鈹戦悜鍥╁埌婵炶尙濞�瀹曟粌鈹戦崶褝鎷锋總绋垮窛閻庢稒蓱濞呮牠鏌ｈ箛鏇炰哗闁稿��鍔欓幃宄扳攽閸モ晝锟介箖鏌熼幑鎰�鐝�闁搞倕娲︾换娑㈠川閿熶粙鏌婇敐鍜冩嫹閿熶粙骞橀敓浠嬬嵁閹帮拷閹�鏃堝灳瀹曞洤鎼搁梻鍌欒兌閸庣敻寮查敓浠嬫煙妞嬪骸鍘撮柡灞革拷绛规嫹閵夈儳绠查悗姘炬嫹
   activeElement = null;
-  selectedTextInfo = null;
   
   // 闂備浇宕垫慨鎾�鏁撻弬銈嗗�归梺鍝ュ枍閸楀啿锟斤拷閿熶粙鏌ㄩ悢铏癸拷鎱絛eButton闂傚倷鐒︾�笛呯矙閹寸偟闄勯柡鍐ㄥ�哥欢銈囩磼鐠哄搫鍔甦eButton闂傚倷鑳剁划锟界紒锟藉�ュ拑鎷烽姀鈭讹拷闁挎洏鍨介弫鎾绘寠婢跺棙锟藉牓鏌熼幆褏锛嶇亸蹇曠磽娴ｄ粙鍝烘繝銏★耿婵℃挳骞掑Δ锟藉�告繈鎮楀☉娆欐嫹閻撳海绉箁eplacementTarget
   hideButton();
@@ -500,6 +586,12 @@ function handleFocusOut(event: FocusEvent): void {
   log('handleFocusOut: element lost focus, replacementTarget remains', {
     hasTarget: !!replacementTarget
   });
+}
+
+function handleSelectionChange(): void {
+  const editable = findEditableElement();
+  if (!editable) return;
+  updateSelectionCache(captureSelectionSnapshot(editable));
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -892,6 +984,7 @@ function hasRuntimeMessaging(): boolean {
 document.addEventListener('input', handleInput, true);
 document.addEventListener('focusin', handleFocusIn, true);
 document.addEventListener('focusout', handleFocusOut, true);
+document.addEventListener('selectionchange', handleSelectionChange, true);
 document.addEventListener('keydown', handleKeydown, true);
 document.addEventListener('click', handleClick, true);
 
