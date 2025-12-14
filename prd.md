@@ -58,6 +58,7 @@ Language Learning Chrome Plugin  Detailed Product Requirements Document PRD
  可一键“替换全部”为优化后的内容
  可复制优化建议全文
   Replace 按钮需要将建议准确回填到原始输入框（包括 iframe 内的输入框），即便输入框失焦或侧边栏获得焦点也要能定位并替换。
+ 替换逻辑：有选区只替换选区，无选区按 select-all 替换；input/textarea 使用 selectionStart/selectionEnd 拼接并派发 input(change)；普通 contenteditable 通过 DOM Range delete+insertText 重置光标；富文本编辑器使用 beforeinput/input（insertReplacementText）模拟用户替换，保持宿主框架状态一致。
 
   Phrasebook 模块（表达库）
 

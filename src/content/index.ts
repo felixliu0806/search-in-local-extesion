@@ -672,17 +672,17 @@ function isRichEditorElement(element: HTMLElement): boolean {
   if (!element.isContentEditable) return false;
   if (element.closest('[data-lexical-editor]')) return true;
 
-  const keywords = ['lexical', 'draftjs', 'draft', 'prosemirror', 'quill', 'slate'];
-  let node: HTMLElement | null = element;
-  while (node) {
-    const className = typeof node.className === 'string' ? node.className.toLowerCase() : '';
-    const dataTokens = Object.values(node.dataset || {}).join(' ').toLowerCase();
-    const tokens = `${className} ${dataTokens}`;
-    if (keywords.some((keyword) => tokens.includes(keyword))) {
-      return true;
-    }
-    node = node.parentElement;
-  }
+  // const keywords = ['lexical', 'draftjs', 'draft', 'prosemirror', 'quill', 'slate'];
+  // let node: HTMLElement | null = element;
+  // while (node) {
+  //   const className = typeof node.className === 'string' ? node.className.toLowerCase() : '';
+  //   const dataTokens = Object.values(node.dataset || {}).join(' ').toLowerCase();
+  //   const tokens = `${className} ${dataTokens}`;
+  //   if (keywords.some((keyword) => tokens.includes(keyword))) {
+  //     return true;
+  //   }
+  //   node = node.parentElement;
+  // }
 
   return false;
 }

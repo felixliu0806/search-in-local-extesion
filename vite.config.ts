@@ -24,6 +24,8 @@ export default defineConfig({
   plugins: [react(), copyManifestPlugin()],
   build: {
     outDir: 'dist',
+    sourcemap: true,
+    minify: false,
     rollupOptions: {
       input: {
         popup: path.resolve(__dirname, 'src/popup/index.html'),

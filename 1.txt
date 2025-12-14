@@ -1,0 +1,356 @@
+你是一个资深前端工程师，熟悉浏览器扩展、content script、各种富文本编辑器（Lexical、Draft.js、Slate、Quill、ProseMirror 等），以及 InputEvent / beforeinput / paste 事件模型。
+现在需要你“在现有代码基础上”改造一段文本替换逻辑，风格参考 Grammarly。
+
+【当前产品背景】
+
+这是一个 Chrome 插件，交互流程是这样的：
+
+用户在任意网页上的某个输入区域里输入内容，这个输入区域可能是：
+
+原生 input / textarea
+
+普通 contenteditable 元素
+
+富文本编辑器（比如 Lexical 之类，通过 contenteditable 驱动）
+
+用户用鼠标在这个输入区域里“选中一段文字”。
+
+选中后，我们会在该输入框附近显示一个悬浮按钮（floating button）。
+
+用户点击悬浮按钮时，我们会“记录当前选中状态和目标元素”，类似这样：
+
+目标元素 element（HTMLElement | HTMLInputElement | HTMLTextAreaElement）
+
+文本框的类型（input / textarea / contenteditable / 富文本编辑器）
+
+当前 selection 的信息（后面叫 selectionInfo）
+并把它们保存到一个全局或模块级状态（下面统称为 replacementTarget）。
+
+随后用户打开插件的 SidePanel，在 SidePanel 里点击 “Replace” 按钮。
+
+点击 SidePanel 的 Replace 时，我们会拿着上一次记录下来的 replacementTarget 和 AI 生成的 suggestion 文本，去“替换原编辑框里的内容”。
+
+已有逻辑里，整体流程已经跑通，包括：
+
+如何找到目标 element；
+
+如何在选中文字时记录 selection 信息；
+
+如何在 SidePanel 点击 Replace 时调用替换函数；
+
+如何 dispatch input / change 事件通知 React/Vue/宿主页面。
+
+现在我要你做的事情是：
+“在这个基础上，仅重写/改造文本替换部分的实现（类似 Grammarly 的做法），并且保留原有的 selection 行为：
+有选中就替换选中的部分，没有选中就替换整个编辑框内容。”
+
+【现有代码（请在这里粘贴）】
+
+下面我会粘贴当前的核心替换逻辑代码（例如 replaceTextInElement 或类似函数）。
+请你在回答时：
+
+尽量保留函数签名和调用方式（不要改调用方接口）。
+
+允许你在函数内部重构实现、拆分辅助函数。
+
+selection 的记录逻辑、replacementTarget 的写入逻辑“不要动”，只改“真正执行替换”的部分。
+
+（请把我现在的 replaceTextInElement / applySuggestion 这一段代码完整贴在这里）
+
+// ==== 在这里粘贴现有代码 ====
+
+【新实现/改造的功能要求】
+
+一、整体行为约束
+
+我们已经有一个 replacementTarget，里面至少包含：
+
+element: HTMLElement | HTMLInputElement | HTMLTextAreaElement
+
+selectionInfo: SelectionSnapshot | null
+
+如果用户在点击悬浮按钮时有选中一段文字，这里就有值；
+
+如果当时没有选中任何内容（只是光标在某处），或者我们选择“替换全部”，这里可以是 null。
+
+当 SidePanel 里的 Replace 按钮被点击时，会调用一个统一的入口函数（例如 applySuggestionFromSidePanel 或 replaceTextInElement 等），这个函数接收：
+
+AI 生成的 suggestion: string
+
+内部要使用最近一次记录的 replacementTarget
+
+行为规则：
+
+如果 replacementTarget.selectionInfo 存在：
+
+只替换这段被选中的文本；
+
+如果 selectionInfo 为空：
+
+替换整个文本框内容（相当于 selectAll + 插入 suggestion）。
+
+替换完成后：
+
+需要正确设置光标位置（合理地放在替换后的文本末尾，或者保持原有 selection，这个细节你可以自行设计，但要保持行为一致、自然）。
+
+要派发合适的 InputEvent 和 change 事件，让 React / Vue / 站点自己的脚本能收到变更。
+
+二、输入场景分类（沿用你自己的辅助函数名也可以）
+
+在替换实现内部，我们需要根据 element 类型选择不同策略。请实现/使用如下场景分类：
+
+纯文本输入控件（Plain text controls）
+
+包括：
+
+HTMLInputElement 且 type 为 text/search/email/password/number 等可编辑类型；
+
+HTMLTextAreaElement。
+
+这些控件有 .value / .selectionStart / .selectionEnd。
+
+如果 selectionInfo 中给出了 start/end（相对于 value 的字符偏移），就只替换对应区间；否则替换全部。
+
+普通 contenteditable（Plain contenteditable）
+
+element.isContentEditable === true；
+
+看起来不像复杂富文本框架控制的编辑器（比如没有明显 data-lexical-editor、draftjs、prosemirror 之类的标记）。可以实现一个 isPlainContentEditable(el) 帮忙判断。
+
+在这种情况下，DOM 即为真相，可以用 Range.deleteContents + insertNode 去操作 DOM。
+
+富文本编辑器（Rich editors，如 Lexical / Draft / Slate / Quill / ProseMirror 等）
+
+同样是 element.isContentEditable === true；
+
+但 element 或其祖先有 data-lexical-editor 属性，或者 className / data-* 中包含 draftjs / prosemirror / quill / slate 等关键词；
+
+需要实现 isRichEditorElement(el: HTMLElement): boolean 来判断。
+
+对这类编辑器，不能直接 deleteContents/innerHTML，否则会被它们内部 state 覆盖，要走 “InputEvent / beforeinput / paste” 那条路线。
+
+兜底场景
+
+如果以上都判断不到（或者识别失败），就走一个尽量安全的兜底策略：
+
+直接设置 textContent 或 innerText；
+
+然后派发 input/change 事件。
+
+三、各场景详细“替换文本”的实现方式
+
+下面是针对「有 selectionInfo」和「没有 selectionInfo（替换全部）」两种情况，在各场景下的具体处理方式。
+
+对 input / textarea：
+
+1）有 selectionInfo：
+
+selectionInfo 至少包含 start 和 end（偏移相对于 el.value）。
+
+步骤：
+
+el.focus()
+
+el.selectionStart = selectionInfo.start
+
+el.selectionEnd = selectionInfo.end
+
+执行替换：
+
+推荐安全做法：
+
+const old = el.value
+
+const prefix = old.slice(0, selectionInfo.start)
+
+const suffix = old.slice(selectionInfo.end)
+
+el.value = prefix + suggestion + suffix
+
+光标位置：
+
+将 selectionStart/End 移到 prefix + suggestion 的末尾，或者视需求保留 selection。
+
+最后派发事件：
+
+new InputEvent('input', { bubbles: true, data: suggestion, inputType: 'insertReplacementText' })
+
+new Event('change', { bubbles: true })
+
+2）没有 selectionInfo（替换全部）：
+
+el.focus()
+
+直接全量替换：
+
+const old = el.value
+
+el.selectionStart = 0
+
+el.selectionEnd = old.length
+
+el.value = suggestion
+
+selectionStart / selectionEnd 设到 suggestion.length
+
+派发 input + change 同上。
+
+注意：
+
+不强依赖 execCommand，除非你确实想兼容某些特殊行为；如果使用 execCommand，请像 Grammarly 那样，失败时 fallback 到 .value 拼接。
+
+保证对 React/Vue/普通原生表单都能触发变更。
+
+对普通 contenteditable：
+
+1）有 selectionInfo：
+
+selectionInfo 可以是一个 SelectionSnapshot，比如：
+
+保存了 anchorNode/anchorOffset/focusNode/focusOffset，或者
+
+已经转换成相对于整个 element 文本内容的 start/end 偏移。
+
+你可以选择比较现实的方案：
+
+要么重建一个 Range：从 snapshot 里的 DOM 节点和 offset 恢复；
+
+要么通过遍历 textNodes + 字符计数，将 start/end 转成一个 DOM Range。
+
+一旦得到 Range：
+
+range.deleteContents()
+
+range.insertNode(document.createTextNode(suggestion))
+
+将 selection 移到新插入文本末尾（setStartAfter / setEndAfter）
+
+最后：
+
+selection.removeAllRanges()
+
+selection.addRange(range)
+
+el.dispatchEvent(new InputEvent('input', { bubbles: true, data: suggestion, inputType: 'insertReplacementText' }))
+
+el.dispatchEvent(new Event('change', { bubbles: true }))
+
+2）没有 selectionInfo（替换全部）：
+
+el.focus()
+
+使用 Range.selectNodeContents(el)
+
+deleteContents()
+
+insertNode(newText)
+
+设置 selection 到末尾，派发 input/change 同上。
+
+对富文本编辑器（Lexical / Draft / Slate / Quill / ProseMirror 等）：
+
+这里不要直接改 DOM，不要用 deleteContents/innerHTML。
+请使用“模拟用户输入”的方式，参考 Grammarly 的做法：
+
+核心思路：
+
+Lexical 等现代编辑器会监听 beforeinput / input / paste 事件；
+
+对 “insertReplacementText” / “deleteContentBackward” 等 inputType 有专门逻辑；
+
+我们要做的，就是构造一个适当的 beforeinput + input，带上 suggestion 作为 data，让编辑器自己替换选区内容。
+
+1）有 selectionInfo：
+
+重点：只替换原本选中的那一段内容。
+
+不强行自己计算 Range 的 DOM 节点位置，让编辑器接管。
+
+行为上等价于：用户选中一段 → 按下某种“替换为 suggestion 的快捷键”。
+
+推荐方案：
+
+el.focus()
+
+可选：用 DOM Selection 恢复选区到 selectionInfo 对应的位置（如果我们保存的是 snapshot，可通过 anchorNode/offset 等恢复）。
+
+构造并派发 beforeinput：
+
+new InputEvent('beforeinput', {
+bubbles: true,
+cancelable: true,
+inputType: 'insertReplacementText',
+data: suggestion,
+})
+
+如果 dispatchEvent 返回 false，表示被阻止，直接 return。
+
+再派发 input：
+
+new InputEvent('input', {
+bubbles: true,
+inputType: 'insertReplacementText',
+data: suggestion,
+})
+
+让富文本编辑器在这些事件里更新自己的 EditorState 和 DOM。
+
+2）没有 selectionInfo（替换全部）：
+
+尽可能在 DOM 层选中整个编辑内容，然后做一次“全选 + 替换”风格的事件：
+
+el.focus()
+
+const sel = window.getSelection()
+
+const range = document.createRange()
+
+range.selectNodeContents(el)
+
+sel.removeAllRanges()
+
+sel.addRange(range)
+
+和上面一样，派发：
+
+beforeinput('insertReplacementText', data = suggestion) → 如果未被取消
+
+input('insertReplacementText', data = suggestion)
+
+光标位置交给编辑器处理，不强行改 selection。
+
+注意：
+
+不要在 rich editor 分支里再直接操作 DOM 文本内容。
+
+不要重复派发额外的自定义 InputEvent（beforeinput / input 这两个就够了）。
+
+兜底场景：
+
+如果 element 既不是 input/textarea，也不是 contenteditable，或者类型判断失败：
+
+el.textContent = suggestion
+
+尝试 dispatch InputEvent + change（即使很多情况下不会有 listener）。
+
+四、结构要求
+
+保留现有的入口函数签名和调用方式（例如 replaceTextInElement / applySuggestionFromSidePanel），不要修改调用方。
+
+允许你在该函数内部增加如下辅助函数：
+
+isTextInputLike(el)
+
+isPlainContentEditable(el)
+
+isRichEditorElement(el)
+
+replaceInTextInput(el, suggestion, selectionInfo)
+
+replaceInPlainContentEditable(el, suggestion, selectionInfo)
+
+replaceInRichEditor(el, suggestion, selectionInfo)
+
+不要修改 selection 记录逻辑、replacementTarget 写入逻辑，只使用 replacementTarget 里的 element 和 selectionInfo。
+
+请用现代 JavaScript 或 TypeScript 编写，包含合理的注释，解释每个分支为什么这么做（尤其是富文本编辑器那块）。

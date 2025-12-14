@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:app && npm run build:content",
-    "build:app": "vite build --config vite.config.ts",
+    "build:app": "vite build --config vite.config.ts --mode debug",
     "build:content": "vite build --config vite.content.config.ts",
     "build-extension": "npm run build && node create-icons.js",
     "lint": "eslint .",
